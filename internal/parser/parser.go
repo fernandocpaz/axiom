@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Value struct {
@@ -892,6 +893,37 @@ func builtin(rt *Runtime, name string, args []Value) (Value, bool, error) {
 			return Value{}, true, err
 		}
 		return Value{Kind: "string", Str: string(data)}, true, nil
+	case "write_file":
+		if !rt.capabilities["filesystem.write"] {
+			return Value{}, true, fmt.Errorf("filesystem.write capability is not allowed")
+		}
+		if err := need(2); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "string" || args[1].Kind != "string" {
+			return Value{}, true, fmt.Errorf("write_file requires text path and content")
+		}
+		if err := ioutil.WriteFile(args[0].Str, []byte(args[1].Str), 0600); err != nil {
+			return Value{}, true, err
+		}
+		return Value{Kind: "none"}, true, nil
+	case "now":
+		if err := need(0); err != nil {
+			return Value{}, true, err
+		}
+		return Value{Kind: "string", Str: time.Now().UTC().Format(time.RFC3339Nano)}, true, nil
+	case "sleep":
+		if !rt.capabilities["time.sleep"] {
+			return Value{}, true, fmt.Errorf("time.sleep capability is not allowed")
+		}
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "int" || args[0].Int < 0 {
+			return Value{}, true, fmt.Errorf("sleep requires non-negative milliseconds")
+		}
+		time.Sleep(time.Duration(args[0].Int) * time.Millisecond)
+		return Value{Kind: "none"}, true, nil
 	case "run":
 		if !rt.capabilities["process.run"] {
 			return Value{}, true, fmt.Errorf("capability process.run is not allowed")
