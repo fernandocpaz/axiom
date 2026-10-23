@@ -48,6 +48,8 @@ const (
 	Set
 	For
 	In
+	Try
+	Catch
 )
 
 type Token struct {
@@ -64,7 +66,7 @@ func (t Token) String() string {
 }
 
 func name(k Kind) string {
-	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">=", Comma: ",", Return: "return", None: "none", Record: "record", Colon: ":", Dot: ".", LBracket: "[", RBracket: "]", While: "while", Break: "break", Continue: "continue", AndAnd: "&&", OrOr: "||", Not: "!", Set: "set", For: "for", In: "in"} {
+	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">=", Comma: ",", Return: "return", None: "none", Record: "record", Colon: ":", Dot: ".", LBracket: "[", RBracket: "]", While: "while", Break: "break", Continue: "continue", AndAnd: "&&", OrOr: "||", Not: "!", Set: "set", For: "for", In: "in", Try: "try", Catch: "catch"} {
 		if v != "" && k == n {
 			return v
 		}
@@ -200,6 +202,12 @@ func Scan(src string) ([]Token, error) {
 			}
 			if text == "in" {
 				k = In
+			}
+			if text == "try" {
+				k = Try
+			}
+			if text == "catch" {
+				k = Catch
 			}
 			out = append(out, Token{k, text, startLine, startCol})
 			col += j - i

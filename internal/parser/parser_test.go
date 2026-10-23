@@ -228,3 +228,28 @@ func TestForInIteration(t *testing.T) {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestTryCatchRecoversRuntimeErrors(t *testing.T) {
+	source := `fn main() {
+  try {
+    print 1 / 0
+  } catch error {
+    print "recovered: " + error
+  }
+}`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Value
+	if err = p.Run(func(v Value) { got = append(got, v) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Str != "recovered: division by zero" {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}

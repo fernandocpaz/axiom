@@ -75,6 +75,11 @@ func (c *checker) checkBody(body []parser.Stmt) {
 			c.env[stmt.ForVar] = Unknown
 			c.checkBody(stmt.Body)
 		}
+		if stmt.TryBody != nil {
+			c.checkBody(stmt.TryBody)
+			c.env[stmt.CatchName] = String
+			c.checkBody(stmt.CatchBody)
+		}
 	}
 }
 

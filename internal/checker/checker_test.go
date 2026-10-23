@@ -105,3 +105,9 @@ func TestAcceptsForInIteration(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %v", got)
 	}
 }
+
+func TestAcceptsTryCatch(t *testing.T) {
+	if got := checkSource(t, `fn main() { try { print 1 / 0 } catch error { print error } }`); len(got) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}

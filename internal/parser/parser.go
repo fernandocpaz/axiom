@@ -301,18 +301,21 @@ func (i Index) eval(rt *Runtime) (Value, error) {
 }
 
 type Stmt struct {
-	Let      string
-	Value    Expr
-	Set      string
-	Print    Expr
-	Return   bool
-	Result   Expr
-	While    Expr
-	Body     []Stmt
-	Break    bool
-	Continue bool
-	ForVar   string
-	ForExpr  Expr
+	Let       string
+	Value     Expr
+	Set       string
+	Print     Expr
+	Return    bool
+	Result    Expr
+	While     Expr
+	Body      []Stmt
+	Break     bool
+	Continue  bool
+	ForVar    string
+	ForExpr   Expr
+	TryBody   []Stmt
+	CatchName string
+	CatchBody []Stmt
 }
 type Function struct {
 	Name   string
@@ -480,6 +483,28 @@ func (p *Parser) stmt() (Stmt, error) {
 		}
 		body, e := p.statements()
 		return Stmt{ForVar: name.Text, ForExpr: collection, Body: body}, e
+	case lexer.Try:
+		p.pos++
+		if e := p.expect(lexer.LBrace); e != nil {
+			return Stmt{}, e
+		}
+		tryBody, e := p.statements()
+		if e != nil {
+			return Stmt{}, e
+		}
+		if e = p.expect(lexer.Catch); e != nil {
+			return Stmt{}, e
+		}
+		name := p.peek()
+		if name.Kind != lexer.Ident {
+			return Stmt{}, p.error("expected catch binding")
+		}
+		p.pos++
+		if e = p.expect(lexer.LBrace); e != nil {
+			return Stmt{}, e
+		}
+		catchBody, e := p.statements()
+		return Stmt{TryBody: tryBody, CatchName: name.Text, CatchBody: catchBody}, e
 	case lexer.Break:
 		p.pos++
 		return Stmt{Break: true}, nil
@@ -921,6 +946,24 @@ func (rt *Runtime) execute(body []Stmt) (Value, flowKind, error) {
 				if flow == flowBreak {
 					break
 				}
+			}
+			continue
+		}
+		if stmt.TryBody != nil {
+			_, flow, err := rt.execute(stmt.TryBody)
+			if err == nil {
+				if flow != flowNormal {
+					return Value{}, flow, nil
+				}
+				continue
+			}
+			rt.env[stmt.CatchName] = Value{Kind: "string", Str: err.Error()}
+			value, flow, catchErr := rt.execute(stmt.CatchBody)
+			if catchErr != nil {
+				return Value{}, flowNormal, catchErr
+			}
+			if flow != flowNormal {
+				return value, flow, nil
 			}
 			continue
 		}
