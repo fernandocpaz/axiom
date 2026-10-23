@@ -33,12 +33,13 @@ Branch: `main`
 - Relative module imports added in commit `1bfc18f`.
 - Capability-scoped file and process effects added in commit `a5e34af`.
 - File output and time capabilities added in commit `1467296`.
+- Cancellable, buffered, merged event streams added in commit `ed22fc2`.
 - CLI now checks programs before execution for undefined names, invalid operators and comparisons, non-boolean conditions, mismatched equality, and mismatched conditional branches.
 - Verified locally with `go test ./...` and an invalid program that reports diagnostic codes and exits before execution.
 
 ## Current interruption state
 
-The working tree is clean after the handoff update. The last implementation commit is `1467296` (`add file output and time capabilities`).
+The working tree is clean after the handoff update. The last implementation commit is `ed22fc2` (`add cancellable merged event streams`).
 
 ## Next action
 

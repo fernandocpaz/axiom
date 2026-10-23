@@ -18,6 +18,8 @@ Implemented:
 - explicit `allow` declarations for capability-scoped file reads and process
   execution and file writes;
 - UTC timestamps and capability-scoped sleeping for timed workflows;
+- cancellable host streams with map, filter, take, buffering, merging, and
+  error propagation;
 - static checking and runtime tests for these features.
 
 Example:
