@@ -1,0 +1,5 @@
+fn main() {
+  let score = if 4 >= 2 { 7 } else { 0 }
+  print score
+  print score == 7
+}

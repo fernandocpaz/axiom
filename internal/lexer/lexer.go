@@ -11,6 +11,10 @@ const (
 	Fn
 	Let
 	Print
+	True
+	False
+	If
+	Else
 	LBrace
 	RBrace
 	LParen
@@ -20,6 +24,12 @@ const (
 	Minus
 	Star
 	Slash
+	EqualEqual
+	NotEqual
+	Less
+	LessEqual
+	Greater
+	GreaterEqual
 )
 
 type Token struct {
@@ -34,7 +44,7 @@ func (t Token) String() string {
 }
 
 func name(k Kind) string {
-	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", Fn: "fn", Let: "let", Print: "print", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/"} {
+	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">="} {
 		if v != "" && k == n {
 			return v
 		}
@@ -84,12 +94,51 @@ func Scan(src string) ([]Token, error) {
 			if text == "print" {
 				k = Print
 			}
+			if text == "true" {
+				k = True
+			}
+			if text == "false" {
+				k = False
+			}
+			if text == "if" {
+				k = If
+			}
+			if text == "else" {
+				k = Else
+			}
 			out = append(out, Token{k, text, startLine, startCol})
 			col += j - i
 			i = j
 			continue
 		}
-		k := map[byte]Kind{'{': LBrace, '}': RBrace, '(': LParen, ')': RParen, '=': Equal, '+': Plus, '-': Minus, '*': Star, '/': Slash}[c]
+		if i+1 < len(src) {
+			pair := src[i : i+2]
+			if pair == "==" {
+				out = append(out, Token{EqualEqual, pair, line, col})
+				i += 2
+				col += 2
+				continue
+			}
+			if pair == "!=" {
+				out = append(out, Token{NotEqual, pair, line, col})
+				i += 2
+				col += 2
+				continue
+			}
+			if pair == "<=" {
+				out = append(out, Token{LessEqual, pair, line, col})
+				i += 2
+				col += 2
+				continue
+			}
+			if pair == ">=" {
+				out = append(out, Token{GreaterEqual, pair, line, col})
+				i += 2
+				col += 2
+				continue
+			}
+		}
+		k := map[byte]Kind{'{': LBrace, '}': RBrace, '(': LParen, ')': RParen, '=': Equal, '+': Plus, '-': Minus, '*': Star, '/': Slash, '<': Less, '>': Greater}[c]
 		if k == 0 {
 			return nil, fmt.Errorf("%d:%d: unexpected character %q", line, col, c)
 		}

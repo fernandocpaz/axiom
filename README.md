@@ -4,7 +4,7 @@ Axiom is an experimental AI-native programming language for software that is eff
 
 ## Status
 
-Milestone 0 is complete: a tiny, deterministic interpreter can lex, parse, and run arithmetic programs with `let` and `print`.
+Milestone 1 is complete: a tiny, deterministic interpreter can lex, parse, and run arithmetic and boolean programs with `let`, `print`, comparisons, and conditional expressions.
 
 This repository is being developed incrementally. Each milestone has a short design record in [`docs/`](docs/).
 
@@ -35,6 +35,8 @@ Axiom will eventually combine:
 - static types, algebraic data, and explicit effects;
 - typed model, retrieval, and tool operations;
 - a compiler pipeline targeting MLIR/LLVM and existing CPU/GPU/WebAssembly targets.
+
+The next implementation milestone is structured diagnostics and a real static type-checking pass.
 
 The compiler backend is intentionally deferred until the language semantics are stable. See [`docs/README-00-vision.md`](docs/README-00-vision.md) and [`docs/README-01-bootstrap.md`](docs/README-01-bootstrap.md).
 

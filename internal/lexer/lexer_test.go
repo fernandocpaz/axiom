@@ -11,3 +11,13 @@ func TestScanKeywords(t *testing.T) {
 		t.Fatalf("unexpected tokens: %#v", ts)
 	}
 }
+
+func TestScanComparisons(t *testing.T) {
+	ts, err := Scan("if x >= 2 == true { print x }")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ts[2].Kind != GreaterEqual || ts[4].Kind != EqualEqual || ts[5].Kind != True {
+		t.Fatalf("unexpected tokens: %#v", ts)
+	}
+}

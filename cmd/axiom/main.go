@@ -28,5 +28,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, e)
 		os.Exit(1)
 	}
-	p.Run(func(v int) { fmt.Println(v) })
+	if err := p.Run(func(v parser.Value) { fmt.Println(v) }); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
