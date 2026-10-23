@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/fernandocpaz/axiom/internal/checker"
 	"github.com/fernandocpaz/axiom/internal/lexer"
 	"github.com/fernandocpaz/axiom/internal/parser"
 	"io/ioutil"
@@ -26,6 +27,13 @@ func main() {
 	p, e := parser.Parse(ts)
 	if e != nil {
 		fmt.Fprintln(os.Stderr, e)
+		os.Exit(1)
+	}
+	diagnostics := checker.Check(p)
+	for _, d := range diagnostics {
+		fmt.Fprintln(os.Stderr, d.Error())
+	}
+	if len(diagnostics) > 0 {
 		os.Exit(1)
 	}
 	if err := p.Run(func(v parser.Value) { fmt.Println(v) }); err != nil {

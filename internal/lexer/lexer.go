@@ -40,6 +40,8 @@ type Token struct {
 	Col  int
 }
 
+func (k Kind) String() string { return name(k) }
+
 func (t Token) String() string {
 	return fmt.Sprintf("%s(%q) at %d:%d", name(t.Kind), t.Text, t.Line, t.Col)
 }
