@@ -4,7 +4,7 @@ Axiom is an experimental AI-native programming language for software that is eff
 
 ## Status
 
-Milestone 1 is complete: a tiny, deterministic interpreter can lex, parse, and run arithmetic and boolean programs with `let`, `print`, comparisons, and conditional expressions.
+Milestone 2 is complete: Axiom can run a real `Hello, world!` program with string literals, alongside arithmetic, boolean values, comparisons, and conditional expressions.
 
 This repository is being developed incrementally. Each milestone has a short design record in [`docs/`](docs/).
 
@@ -20,10 +20,7 @@ go test ./...
 Example:
 
 ```axiom
-fn main() {
-  let answer = 40 + 2
-  print answer
-}
+fn main() { print "Hello, world!" }
 ```
 
 ## Direction

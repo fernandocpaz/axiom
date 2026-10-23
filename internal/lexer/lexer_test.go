@@ -21,3 +21,13 @@ func TestScanComparisons(t *testing.T) {
 		t.Fatalf("unexpected tokens: %#v", ts)
 	}
 }
+
+func TestScanString(t *testing.T) {
+	ts, err := Scan(`print "hello\nworld"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ts[1].Kind != String || ts[1].Text != "hello\nworld" {
+		t.Fatalf("unexpected string token: %#v", ts[1])
+	}
+}

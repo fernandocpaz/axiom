@@ -10,6 +10,7 @@ type Value struct {
 	Kind string
 	Int  int
 	Bool bool
+	Str  string
 }
 
 func (v Value) String() string {
@@ -19,6 +20,9 @@ func (v Value) String() string {
 		}
 		return "false"
 	}
+	if v.Kind == "string" {
+		return v.Str
+	}
 	return strconv.Itoa(v.Int)
 }
 
@@ -26,6 +30,7 @@ type Expr interface {
 	eval(map[string]Value) (Value, error)
 }
 type Number int
+type String string
 type Boolean bool
 type Variable string
 type Binary struct {
@@ -35,6 +40,9 @@ type Binary struct {
 type Conditional struct{ Test, Yes, No Expr }
 
 func (n Number) eval(map[string]Value) (Value, error) { return Value{Kind: "int", Int: int(n)}, nil }
+func (s String) eval(map[string]Value) (Value, error) {
+	return Value{Kind: "string", Str: string(s)}, nil
+}
 func (b Boolean) eval(map[string]Value) (Value, error) {
 	return Value{Kind: "bool", Bool: bool(b)}, nil
 }
@@ -58,7 +66,7 @@ func (b Binary) eval(env map[string]Value) (Value, error) {
 		if l.Kind != r.Kind {
 			return Value{}, fmt.Errorf("cannot compare %s and %s", l.Kind, r.Kind)
 		}
-		eq := (l.Kind == "int" && l.Int == r.Int) || (l.Kind == "bool" && l.Bool == r.Bool)
+		eq := (l.Kind == "int" && l.Int == r.Int) || (l.Kind == "bool" && l.Bool == r.Bool) || (l.Kind == "string" && l.Str == r.Str)
 		if b.Op == lexer.NotEqual {
 			eq = !eq
 		}
@@ -201,6 +209,9 @@ func (p *Parser) expr(min int) (Expr, error) {
 	case lexer.Number:
 		n, _ := strconv.Atoi(t.Text)
 		left = Number(n)
+		p.pos++
+	case lexer.String:
+		left = String(t.Text)
 		p.pos++
 	case lexer.True:
 		left = Boolean(true)

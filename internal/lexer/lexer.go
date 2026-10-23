@@ -8,6 +8,7 @@ const (
 	EOF Kind = iota
 	Ident
 	Number
+	String
 	Fn
 	Let
 	Print
@@ -44,7 +45,7 @@ func (t Token) String() string {
 }
 
 func name(k Kind) string {
-	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">="} {
+	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">="} {
 		if v != "" && k == n {
 			return v
 		}
@@ -68,6 +69,47 @@ func Scan(src string) ([]Token, error) {
 			continue
 		}
 		startLine, startCol := line, col
+		if c == '"' {
+			j := i + 1
+			text := ""
+			for j < len(src) && src[j] != '"' {
+				if src[j] == '\\' {
+					if j+1 >= len(src) {
+						return nil, fmt.Errorf("%d:%d: unterminated string", startLine, startCol)
+					}
+					j++
+					switch src[j] {
+					case 'n':
+						text += "\n"
+					case 't':
+						text += "\t"
+					case '"':
+						text += "\""
+					case '\\':
+						text += "\\"
+					default:
+						return nil, fmt.Errorf("%d:%d: unknown string escape \\%c", line, col, src[j])
+					}
+					j++
+					continue
+				}
+				if src[j] == '\n' {
+					line++
+					col = 1
+				} else {
+					col++
+				}
+				text += string(src[j])
+				j++
+			}
+			if j >= len(src) {
+				return nil, fmt.Errorf("%d:%d: unterminated string", startLine, startCol)
+			}
+			out = append(out, Token{String, text, startLine, startCol})
+			col += j - i + 1
+			i = j + 1
+			continue
+		}
 		if c >= '0' && c <= '9' {
 			j := i
 			for j < len(src) && src[j] >= '0' && src[j] <= '9' {
