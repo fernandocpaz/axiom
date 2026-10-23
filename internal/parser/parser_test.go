@@ -277,3 +277,21 @@ func TestJSONBuiltins(t *testing.T) {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestProcessCapabilityRuntime(t *testing.T) {
+	ts, err := lexer.Scan(`allow "process.run" fn main() { print run("printf", ["ok"]).output }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Value
+	if err = p.Run(func(v Value) { got = v }); err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != "string" || got.Str != "ok" {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}

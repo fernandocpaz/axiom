@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/fernandocpaz/axiom/internal/diagnostic"
 	"github.com/fernandocpaz/axiom/internal/lexer"
+	"io/ioutil"
+	"os/exec"
 	"regexp"
 	"sort"
 	"strconv"
@@ -324,9 +326,10 @@ type Function struct {
 	Body   []Stmt
 }
 type Program struct {
-	Body      []Stmt
-	Functions []Function
-	Imports   []string
+	Body         []Stmt
+	Functions    []Function
+	Imports      []string
+	Capabilities []string
 }
 type Parser struct {
 	tokens []lexer.Token
@@ -337,6 +340,7 @@ func Parse(ts []lexer.Token) (Program, error) {
 	p := &Parser{tokens: ts}
 	var functions []Function
 	var imports []string
+	var capabilities []string
 	for p.peek().Kind != lexer.EOF {
 		if p.peek().Kind == lexer.Import {
 			p.pos++
@@ -345,6 +349,16 @@ func Parse(ts []lexer.Token) (Program, error) {
 				return Program{}, p.error("expected import path")
 			}
 			imports = append(imports, path.Text)
+			p.pos++
+			continue
+		}
+		if p.peek().Kind == lexer.Allow {
+			p.pos++
+			capability := p.peek()
+			if capability.Kind != lexer.String {
+				return Program{}, p.error("expected capability name")
+			}
+			capabilities = append(capabilities, capability.Text)
 			p.pos++
 			continue
 		}
@@ -359,10 +373,10 @@ func Parse(ts []lexer.Token) (Program, error) {
 	}
 	for _, f := range functions {
 		if f.Name == "main" {
-			return Program{Body: f.Body, Functions: functions, Imports: imports}, nil
+			return Program{Body: f.Body, Functions: functions, Imports: imports, Capabilities: capabilities}, nil
 		}
 	}
-	return Program{Functions: functions, Imports: imports}, nil
+	return Program{Functions: functions, Imports: imports, Capabilities: capabilities}, nil
 }
 
 func (p *Parser) function() (Function, error) {
@@ -758,10 +772,11 @@ func spanBetween(start, end diagnostic.Span) diagnostic.Span {
 }
 
 type Runtime struct {
-	env   map[string]Value
-	funcs map[string]Function
-	out   func(Value)
-	depth int
+	env          map[string]Value
+	funcs        map[string]Function
+	out          func(Value)
+	depth        int
+	capabilities map[string]bool
 }
 
 type flowKind int
@@ -774,7 +789,7 @@ const (
 )
 
 func (rt *Runtime) call(name string, args []Value) (Value, error) {
-	if value, ok, err := builtin(name, args); ok {
+	if value, ok, err := builtin(rt, name, args); ok {
 		return value, err
 	}
 	function, ok := rt.funcs[name]
@@ -810,7 +825,7 @@ func (rt *Runtime) call(name string, args []Value) (Value, error) {
 	return Value{}, nil
 }
 
-func builtin(name string, args []Value) (Value, bool, error) {
+func builtin(rt *Runtime, name string, args []Value) (Value, bool, error) {
 	need := func(count int) error {
 		if len(args) != count {
 			return fmt.Errorf("builtin %q expects %d arguments, got %d", name, count, len(args))
@@ -818,6 +833,44 @@ func builtin(name string, args []Value) (Value, bool, error) {
 		return nil
 	}
 	switch name {
+	case "read_file":
+		if !rt.capabilities["filesystem.read"] {
+			return Value{}, true, fmt.Errorf("capability filesystem.read is not allowed")
+		}
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "string" {
+			return Value{}, true, fmt.Errorf("read_file requires text path")
+		}
+		data, err := ioutil.ReadFile(args[0].Str)
+		if err != nil {
+			return Value{}, true, err
+		}
+		return Value{Kind: "string", Str: string(data)}, true, nil
+	case "run":
+		if !rt.capabilities["process.run"] {
+			return Value{}, true, fmt.Errorf("capability process.run is not allowed")
+		}
+		if err := need(2); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "string" || args[1].Kind != "list" {
+			return Value{}, true, fmt.Errorf("run requires command text and argument list")
+		}
+		argv := make([]string, len(args[1].List))
+		for i, arg := range args[1].List {
+			if arg.Kind != "string" {
+				return Value{}, true, fmt.Errorf("run arguments must be text")
+			}
+			argv[i] = arg.Str
+		}
+		output, err := exec.Command(args[0].Str, argv...).CombinedOutput()
+		result := Value{Kind: "record", Fields: map[string]Value{"output": {Kind: "string", Str: string(output)}, "ok": {Kind: "bool", Bool: err == nil}}}
+		if err != nil {
+			result.Fields["error"] = Value{Kind: "string", Str: err.Error()}
+		}
+		return result, true, nil
 	case "len":
 		if err := need(1); err != nil {
 			return Value{}, true, err
@@ -1100,7 +1153,11 @@ func (pr Program) Run(out func(Value)) error {
 	if _, ok := functions["main"]; !ok {
 		functions["main"] = Function{Name: "main", Body: pr.Body}
 	}
-	rt := &Runtime{env: map[string]Value{}, funcs: functions, out: out}
+	capabilities := map[string]bool{}
+	for _, capability := range pr.Capabilities {
+		capabilities[capability] = true
+	}
+	rt := &Runtime{env: map[string]Value{}, funcs: functions, out: out, capabilities: capabilities}
 	_, err := rt.call("main", nil)
 	return err
 }

@@ -117,3 +117,14 @@ func TestAcceptsJSONBuiltins(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %v", got)
 	}
 }
+
+func TestCapabilitiesAreRequiredForEffects(t *testing.T) {
+	got := checkSource(t, `fn main() { print read_file("missing.txt") }`)
+	if len(got) != 1 || got[0] != "capability" {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+	got = checkSource(t, `allow "process.run" fn main() { print run("printf", ["ok"]) }`)
+	if len(got) != 0 {
+		t.Fatalf("unexpected diagnostics with capability: %v", got)
+	}
+}

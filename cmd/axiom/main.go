@@ -69,8 +69,10 @@ func loadProgram(path string, active map[string]bool, cache map[string]parser.Pr
 			return parser.Program{}, err
 		}
 		merged.Functions = append(merged.Functions, dependency.Functions...)
+		merged.Capabilities = append(merged.Capabilities, dependency.Capabilities...)
 	}
 	merged.Functions = append(merged.Functions, program.Functions...)
+	merged.Capabilities = append(merged.Capabilities, program.Capabilities...)
 	for _, function := range merged.Functions {
 		if function.Name == "main" {
 			merged.Body = function.Body

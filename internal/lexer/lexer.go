@@ -51,6 +51,7 @@ const (
 	Try
 	Catch
 	Import
+	Allow
 )
 
 type Token struct {
@@ -67,7 +68,7 @@ func (t Token) String() string {
 }
 
 func name(k Kind) string {
-	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">=", Comma: ",", Return: "return", None: "none", Record: "record", Colon: ":", Dot: ".", LBracket: "[", RBracket: "]", While: "while", Break: "break", Continue: "continue", AndAnd: "&&", OrOr: "||", Not: "!", Set: "set", For: "for", In: "in", Try: "try", Catch: "catch", Import: "import"} {
+	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">=", Comma: ",", Return: "return", None: "none", Record: "record", Colon: ":", Dot: ".", LBracket: "[", RBracket: "]", While: "while", Break: "break", Continue: "continue", AndAnd: "&&", OrOr: "||", Not: "!", Set: "set", For: "for", In: "in", Try: "try", Catch: "catch", Import: "import", Allow: "allow"} {
 		if v != "" && k == n {
 			return v
 		}
@@ -212,6 +213,9 @@ func Scan(src string) ([]Token, error) {
 			}
 			if text == "import" {
 				k = Import
+			}
+			if text == "allow" {
+				k = Allow
 			}
 			out = append(out, Token{k, text, startLine, startCol})
 			col += j - i

@@ -26,7 +26,11 @@ func Check(program parser.Program) []diagnostic.Diagnostic {
 	if _, ok := functions["main"]; !ok {
 		functions["main"] = parser.Function{Name: "main", Body: program.Body}
 	}
-	c := &checker{env: map[string]string{}, functions: functions}
+	capabilities := map[string]bool{}
+	for _, capability := range program.Capabilities {
+		capabilities[capability] = true
+	}
+	c := &checker{env: map[string]string{}, functions: functions, capabilities: capabilities}
 	for _, function := range functions {
 		c.env = map[string]string{}
 		for _, param := range function.Params {
@@ -84,9 +88,10 @@ func (c *checker) checkBody(body []parser.Stmt) {
 }
 
 type checker struct {
-	env         map[string]string
-	functions   map[string]parser.Function
-	diagnostics []diagnostic.Diagnostic
+	env          map[string]string
+	functions    map[string]parser.Function
+	capabilities map[string]bool
+	diagnostics  []diagnostic.Diagnostic
 }
 
 func exprSpan(expr parser.Expr) diagnostic.Span {
@@ -165,11 +170,19 @@ func (c *checker) expr(expr parser.Expr) string {
 		for _, arg := range e.Args {
 			c.expr(arg)
 		}
+		if e.Name == "read_file" && !c.capabilities["filesystem.read"] {
+			c.report("capability", "read_file requires allow \"filesystem.read\"", span)
+		}
+		if e.Name == "run" && !c.capabilities["process.run"] {
+			c.report("capability", "run requires allow \"process.run\"", span)
+		}
 		switch e.Name {
 		case "len", "number":
 			return Int
-		case "text", "json_encode":
+		case "text", "json_encode", "read_file":
 			return String
+		case "run":
+			return Record
 		case "json_decode":
 			return Unknown
 		case "contains", "starts_with", "ends_with", "matches":
@@ -199,7 +212,7 @@ func (c *checker) expr(expr parser.Expr) string {
 
 func isBuiltin(name string) bool {
 	switch name {
-	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches", "json_encode", "json_decode":
+	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches", "json_encode", "json_decode", "read_file", "run":
 		return true
 	default:
 		return false
