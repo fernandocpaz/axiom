@@ -67,3 +67,9 @@ func TestAcceptsFunctionCalls(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %v", got)
 	}
 }
+
+func TestAcceptsStructuredValues(t *testing.T) {
+	if got := checkSource(t, `fn main() { let x = record { values: [1, 2], active: true } print x.values[0] }`); len(got) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}

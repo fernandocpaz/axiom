@@ -33,6 +33,12 @@ const (
 	GreaterEqual
 	Comma
 	Return
+	None
+	Record
+	Colon
+	Dot
+	LBracket
+	RBracket
 )
 
 type Token struct {
@@ -49,7 +55,7 @@ func (t Token) String() string {
 }
 
 func name(k Kind) string {
-	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">=", Comma: ",", Return: "return"} {
+	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">=", Comma: ",", Return: "return", None: "none", Record: "record", Colon: ":", Dot: ".", LBracket: "[", RBracket: "]"} {
 		if v != "" && k == n {
 			return v
 		}
@@ -162,6 +168,12 @@ func Scan(src string) ([]Token, error) {
 			if text == "return" {
 				k = Return
 			}
+			if text == "none" {
+				k = None
+			}
+			if text == "record" {
+				k = Record
+			}
 			out = append(out, Token{k, text, startLine, startCol})
 			col += j - i
 			i = j
@@ -194,7 +206,7 @@ func Scan(src string) ([]Token, error) {
 				continue
 			}
 		}
-		k := map[byte]Kind{'{': LBrace, '}': RBrace, '(': LParen, ')': RParen, ',': Comma, '=': Equal, '+': Plus, '-': Minus, '*': Star, '/': Slash, '<': Less, '>': Greater}[c]
+		k := map[byte]Kind{'{': LBrace, '}': RBrace, '(': LParen, ')': RParen, ',': Comma, ':': Colon, '.': Dot, '[': LBracket, ']': RBracket, '=': Equal, '+': Plus, '-': Minus, '*': Star, '/': Slash, '<': Less, '>': Greater}[c]
 		if k == 0 {
 			return nil, fmt.Errorf("%d:%d: unexpected character %q", line, col, c)
 		}

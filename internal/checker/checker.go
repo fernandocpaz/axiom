@@ -11,6 +11,9 @@ const (
 	Int     = "int"
 	Bool    = "bool"
 	String  = "string"
+	List    = "list"
+	Record  = "record"
+	None    = "none"
 	Unknown = "unknown"
 )
 
@@ -80,6 +83,25 @@ func (c *checker) expr(expr parser.Expr) string {
 		return String
 	case parser.Boolean:
 		return Bool
+	case parser.None:
+		return None
+	case parser.ListLiteral:
+		for _, item := range e {
+			c.expr(item)
+		}
+		return List
+	case parser.RecordLiteral:
+		for _, item := range e {
+			c.expr(item)
+		}
+		return Record
+	case parser.Field:
+		c.expr(e.Object)
+		return Unknown
+	case parser.Index:
+		c.expr(e.Object)
+		c.expr(e.Key)
+		return Unknown
 	case parser.Variable:
 		t, ok := c.env[string(e)]
 		if !ok {

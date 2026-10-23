@@ -86,3 +86,27 @@ fn main() { print add(20, 22) }`
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestStructuredValues(t *testing.T) {
+	source := `fn main() {
+  let items = [10, 20, 12]
+  let pod = record { name: "api", restarts: items[2] }
+  print pod.name
+  print pod["restarts"]
+}`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Value
+	if err = p.Run(func(v Value) { got = append(got, v) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Kind != "string" || got[0].Str != "api" || got[1].Int != 12 {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}

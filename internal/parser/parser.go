@@ -4,14 +4,18 @@ import (
 	"fmt"
 	"github.com/fernandocpaz/axiom/internal/diagnostic"
 	"github.com/fernandocpaz/axiom/internal/lexer"
+	"sort"
 	"strconv"
+	"strings"
 )
 
 type Value struct {
-	Kind string
-	Int  int
-	Bool bool
-	Str  string
+	Kind   string
+	Int    int
+	Bool   bool
+	Str    string
+	List   []Value
+	Fields map[string]Value
 }
 
 func (v Value) String() string {
@@ -23,6 +27,24 @@ func (v Value) String() string {
 	}
 	if v.Kind == "string" {
 		return v.Str
+	}
+	if v.Kind == "none" {
+		return "none"
+	}
+	if v.Kind == "list" {
+		parts := make([]string, len(v.List))
+		for i, item := range v.List {
+			parts[i] = item.String()
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	}
+	if v.Kind == "record" {
+		parts := make([]string, 0, len(v.Fields))
+		for key, item := range v.Fields {
+			parts = append(parts, key+": "+item.String())
+		}
+		sort.Strings(parts)
+		return "record {" + strings.Join(parts, ", ") + "}"
 	}
 	return strconv.Itoa(v.Int)
 }
@@ -42,6 +64,7 @@ func (e Located) eval(rt *Runtime) (Value, error) { return e.Inner.eval(rt) }
 type Number int
 type String string
 type Boolean bool
+type None struct{}
 type Variable string
 type Binary struct {
 	Op          lexer.Kind
@@ -52,6 +75,16 @@ type Call struct {
 	Name string
 	Args []Expr
 }
+type ListLiteral []Expr
+type RecordLiteral map[string]Expr
+type Field struct {
+	Object Expr
+	Name   string
+}
+type Index struct {
+	Object Expr
+	Key    Expr
+}
 
 func (n Number) eval(*Runtime) (Value, error) { return Value{Kind: "int", Int: int(n)}, nil }
 func (s String) eval(*Runtime) (Value, error) {
@@ -60,6 +93,7 @@ func (s String) eval(*Runtime) (Value, error) {
 func (b Boolean) eval(*Runtime) (Value, error) {
 	return Value{Kind: "bool", Bool: bool(b)}, nil
 }
+func (None) eval(*Runtime) (Value, error) { return Value{Kind: "none"}, nil }
 func (v Variable) eval(rt *Runtime) (Value, error) {
 	n, ok := rt.env[string(v)]
 	if !ok {
@@ -136,6 +170,70 @@ func (c Call) eval(rt *Runtime) (Value, error) {
 		args[i] = value
 	}
 	return rt.call(c.Name, args)
+}
+
+func (l ListLiteral) eval(rt *Runtime) (Value, error) {
+	values := make([]Value, len(l))
+	for i, item := range l {
+		value, err := item.eval(rt)
+		if err != nil {
+			return Value{}, err
+		}
+		values[i] = value
+	}
+	return Value{Kind: "list", List: values}, nil
+}
+
+func (r RecordLiteral) eval(rt *Runtime) (Value, error) {
+	values := make(map[string]Value, len(r))
+	for name, item := range r {
+		value, err := item.eval(rt)
+		if err != nil {
+			return Value{}, err
+		}
+		values[name] = value
+	}
+	return Value{Kind: "record", Fields: values}, nil
+}
+
+func (f Field) eval(rt *Runtime) (Value, error) {
+	object, err := f.Object.eval(rt)
+	if err != nil {
+		return Value{}, err
+	}
+	if object.Kind != "record" {
+		return Value{}, fmt.Errorf("cannot access field %q on %s", f.Name, object.Kind)
+	}
+	value, ok := object.Fields[f.Name]
+	if !ok {
+		return Value{}, fmt.Errorf("record has no field %q", f.Name)
+	}
+	return value, nil
+}
+
+func (i Index) eval(rt *Runtime) (Value, error) {
+	object, err := i.Object.eval(rt)
+	if err != nil {
+		return Value{}, err
+	}
+	key, err := i.Key.eval(rt)
+	if err != nil {
+		return Value{}, err
+	}
+	if object.Kind == "list" && key.Kind == "int" {
+		if key.Int < 0 || key.Int >= len(object.List) {
+			return Value{}, fmt.Errorf("list index %d out of range", key.Int)
+		}
+		return object.List[key.Int], nil
+	}
+	if object.Kind == "record" && key.Kind == "string" {
+		value, ok := object.Fields[key.Str]
+		if !ok {
+			return Value{}, fmt.Errorf("record has no field %q", key.Str)
+		}
+		return value, nil
+	}
+	return Value{}, fmt.Errorf("invalid index on %s", object.Kind)
 }
 
 type Stmt struct {
@@ -294,6 +392,9 @@ func (p *Parser) expr(min int) (Expr, error) {
 	case lexer.False:
 		left = Located{Inner: Boolean(false), Span: tokenSpan(t)}
 		p.pos++
+	case lexer.None:
+		left = Located{Inner: None{}, Span: tokenSpan(t)}
+		p.pos++
 	case lexer.Ident:
 		p.pos++
 		if p.peek().Kind != lexer.LParen {
@@ -329,6 +430,57 @@ func (p *Parser) expr(min int) (Expr, error) {
 		if e = p.expect(lexer.RParen); e != nil {
 			return nil, e
 		}
+	case lexer.LBracket:
+		p.pos++
+		var items []Expr
+		if p.peek().Kind != lexer.RBracket {
+			for {
+				item, e := p.expr(0)
+				if e != nil {
+					return nil, e
+				}
+				items = append(items, item)
+				if p.peek().Kind != lexer.Comma {
+					break
+				}
+				p.pos++
+			}
+		}
+		if e := p.expect(lexer.RBracket); e != nil {
+			return nil, e
+		}
+		left = Located{Inner: ListLiteral(items), Span: spanFrom(t, p.tokens[p.pos-1])}
+	case lexer.Record:
+		p.pos++
+		if e := p.expect(lexer.LBrace); e != nil {
+			return nil, e
+		}
+		fields := map[string]Expr{}
+		if p.peek().Kind != lexer.RBrace {
+			for {
+				name := p.peek()
+				if name.Kind != lexer.Ident && name.Kind != lexer.String {
+					return nil, p.error("expected record field name")
+				}
+				p.pos++
+				if e := p.expect(lexer.Colon); e != nil {
+					return nil, e
+				}
+				value, e := p.expr(0)
+				if e != nil {
+					return nil, e
+				}
+				fields[name.Text] = value
+				if p.peek().Kind != lexer.Comma {
+					break
+				}
+				p.pos++
+			}
+		}
+		if e := p.expect(lexer.RBrace); e != nil {
+			return nil, e
+		}
+		left = Located{Inner: RecordLiteral(fields), Span: spanFrom(t, p.tokens[p.pos-1])}
 	case lexer.If:
 		p.pos++
 		test, e := p.expr(0)
@@ -362,6 +514,31 @@ func (p *Parser) expr(min int) (Expr, error) {
 	default:
 		return nil, p.error("expected expression")
 	}
+	for {
+		switch p.peek().Kind {
+		case lexer.Dot:
+			p.pos++
+			name := p.peek()
+			if name.Kind != lexer.Ident {
+				return nil, p.error("expected field name")
+			}
+			p.pos++
+			left = Located{Inner: Field{Object: left, Name: name.Text}, Span: spanBetween(exprSpan(left), tokenSpan(name))}
+		case lexer.LBracket:
+			p.pos++
+			key, e := p.expr(0)
+			if e != nil {
+				return nil, e
+			}
+			if e = p.expect(lexer.RBracket); e != nil {
+				return nil, e
+			}
+			left = Located{Inner: Index{Object: left, Key: key}, Span: spanBetween(exprSpan(left), tokenSpan(p.tokens[p.pos-1]))}
+		default:
+			goto postfixDone
+		}
+	}
+postfixDone:
 	for {
 		op := p.peek().Kind
 		prec := precedence(op)
