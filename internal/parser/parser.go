@@ -326,6 +326,7 @@ type Function struct {
 type Program struct {
 	Body      []Stmt
 	Functions []Function
+	Imports   []string
 }
 type Parser struct {
 	tokens []lexer.Token
@@ -335,7 +336,18 @@ type Parser struct {
 func Parse(ts []lexer.Token) (Program, error) {
 	p := &Parser{tokens: ts}
 	var functions []Function
+	var imports []string
 	for p.peek().Kind != lexer.EOF {
+		if p.peek().Kind == lexer.Import {
+			p.pos++
+			path := p.peek()
+			if path.Kind != lexer.String {
+				return Program{}, p.error("expected import path")
+			}
+			imports = append(imports, path.Text)
+			p.pos++
+			continue
+		}
 		f, e := p.function()
 		if e != nil {
 			return Program{}, e
@@ -347,10 +359,10 @@ func Parse(ts []lexer.Token) (Program, error) {
 	}
 	for _, f := range functions {
 		if f.Name == "main" {
-			return Program{Body: f.Body, Functions: functions}, nil
+			return Program{Body: f.Body, Functions: functions, Imports: imports}, nil
 		}
 	}
-	return Program{}, fmt.Errorf("1:1: expected main function")
+	return Program{Functions: functions, Imports: imports}, nil
 }
 
 func (p *Parser) function() (Function, error) {
