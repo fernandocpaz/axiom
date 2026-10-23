@@ -140,6 +140,9 @@ func (c *checker) expr(expr parser.Expr) string {
 	case parser.Variable:
 		t, ok := c.env[string(e)]
 		if !ok {
+			if _, isFunction := c.functions[string(e)]; isFunction {
+				return "function"
+			}
 			c.report("undefined-name", fmt.Sprintf("undefined variable %q", string(e)), span)
 			return Unknown
 		}
@@ -179,6 +182,8 @@ func (c *checker) expr(expr parser.Expr) string {
 		switch e.Name {
 		case "len", "number":
 			return Int
+		case "map", "filter":
+			return List
 		case "text", "json_encode", "read_file":
 			return String
 		case "run":
@@ -212,7 +217,7 @@ func (c *checker) expr(expr parser.Expr) string {
 
 func isBuiltin(name string) bool {
 	switch name {
-	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches", "json_encode", "json_decode", "read_file", "run":
+	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches", "json_encode", "json_decode", "read_file", "run", "map", "filter":
 		return true
 	default:
 		return false

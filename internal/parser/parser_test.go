@@ -295,3 +295,29 @@ func TestProcessCapabilityRuntime(t *testing.T) {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestFunctionValuesMapAndFilter(t *testing.T) {
+	source := `fn double(value) { return value * 2 }
+fn positive(value) { return value > 0 }
+fn main() {
+  let doubled = map([1, 2, 3], double)
+  let selected = filter([-1, 2, -3], positive)
+  print doubled[1]
+  print selected[0]
+}`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Value
+	if err = p.Run(func(v Value) { got = append(got, v) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Int != 4 || got[1].Int != 2 {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}

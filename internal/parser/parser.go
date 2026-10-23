@@ -14,12 +14,13 @@ import (
 )
 
 type Value struct {
-	Kind   string
-	Int    int
-	Bool   bool
-	Str    string
-	List   []Value
-	Fields map[string]Value
+	Kind     string
+	Int      int
+	Bool     bool
+	Str      string
+	List     []Value
+	Fields   map[string]Value
+	Function string
 }
 
 func (v Value) String() string {
@@ -34,6 +35,9 @@ func (v Value) String() string {
 	}
 	if v.Kind == "none" {
 		return "none"
+	}
+	if v.Kind == "function" {
+		return v.Function
 	}
 	if v.Kind == "list" {
 		parts := make([]string, len(v.List))
@@ -105,6 +109,9 @@ func (None) eval(*Runtime) (Value, error) { return Value{Kind: "none"}, nil }
 func (v Variable) eval(rt *Runtime) (Value, error) {
 	n, ok := rt.env[string(v)]
 	if !ok {
+		if _, isFunction := rt.funcs[string(v)]; isFunction {
+			return Value{Kind: "function", Function: string(v)}, nil
+		}
 		return Value{}, fmt.Errorf("undefined variable %q", v)
 	}
 	return n, nil
@@ -956,6 +963,26 @@ func builtin(rt *Runtime, name string, args []Value) (Value, bool, error) {
 		}
 		value, err := fromJSON(decoded)
 		return value, true, err
+	case "map", "filter":
+		if err := need(2); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "list" || args[1].Kind != "function" {
+			return Value{}, true, fmt.Errorf("%s requires a list and function", name)
+		}
+		values := make([]Value, 0, len(args[0].List))
+		for _, item := range args[0].List {
+			result, err := rt.call(args[1].Function, []Value{item})
+			if err != nil {
+				return Value{}, true, err
+			}
+			if name == "map" {
+				values = append(values, result)
+			} else if result.Kind == "bool" && result.Bool {
+				values = append(values, item)
+			}
+		}
+		return Value{Kind: "list", List: values}, true, nil
 	}
 	return Value{}, false, nil
 }

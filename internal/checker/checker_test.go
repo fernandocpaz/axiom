@@ -128,3 +128,9 @@ func TestCapabilitiesAreRequiredForEffects(t *testing.T) {
 		t.Fatalf("unexpected diagnostics with capability: %v", got)
 	}
 }
+
+func TestAcceptsFunctionValues(t *testing.T) {
+	if got := checkSource(t, `fn double(value) { return value * 2 } fn main() { print map([1, 2], double) }`); len(got) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}
