@@ -68,6 +68,34 @@ func TestAcceptsFunctionCalls(t *testing.T) {
 	}
 }
 
+func TestInfersConstantFunctionReturnType(t *testing.T) {
+	got := checkSource(t, `fn answer() { return 42 } fn main() { let value = answer() set value = "wrong" }`)
+	if len(got) != 1 || got[0] != "assignment-type" {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}
+
+func TestSpecializesFunctionReturnTypeFromArguments(t *testing.T) {
+	got := checkSource(t, `fn identity(value) { return value } fn main() { let value = identity(42) set value = "wrong" }`)
+	if len(got) != 1 || got[0] != "assignment-type" {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}
+
+func TestInfersConditionalFunctionReturnType(t *testing.T) {
+	got := checkSource(t, `fn answer() { return if true { 42 } else { 7 } } fn main() { let value = answer() set value = false }`)
+	if len(got) != 1 || got[0] != "assignment-type" {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}
+
+func TestReportsConflictingFunctionReturnTypes(t *testing.T) {
+	got := checkSource(t, `fn broken(flag) { while flag { return 1 } return "wrong" } fn main() { print broken(true) }`)
+	if len(got) != 1 || got[0] != "return-type" {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}
+
 func TestAcceptsStructuredValues(t *testing.T) {
 	if got := checkSource(t, `fn main() { let x = record { values: [1, 2], active: true } print x.values[0] }`); len(got) != 0 {
 		t.Fatalf("unexpected diagnostics: %v", got)

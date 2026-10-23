@@ -5,6 +5,7 @@ import (
 	"github.com/fernandocpaz/axiom/internal/diagnostic"
 	"github.com/fernandocpaz/axiom/internal/lexer"
 	"github.com/fernandocpaz/axiom/internal/parser"
+	"strings"
 )
 
 const (
@@ -30,13 +31,15 @@ func Check(program parser.Program) []diagnostic.Diagnostic {
 	for _, capability := range program.Capabilities {
 		capabilities[capability] = true
 	}
-	c := &checker{env: map[string]string{}, functions: functions, capabilities: capabilities}
+	c := &checker{env: map[string]string{}, functions: functions, capabilities: capabilities, inferred: map[string]string{}, inferring: map[string]bool{}}
 	for _, function := range functions {
 		c.env = map[string]string{}
 		for _, param := range function.Params {
 			c.env[param] = Unknown
 		}
+		c.returnTypes = nil
 		c.checkBody(function.Body)
+		c.reportInconsistentReturns(c.returnTypes)
 	}
 	return c.diagnostics
 }
@@ -65,7 +68,7 @@ func (c *checker) checkBody(body []parser.Stmt) {
 			c.expr(stmt.Print)
 		}
 		if stmt.Return {
-			c.expr(stmt.Result)
+			c.returnTypes = append(c.returnTypes, c.expr(stmt.Result))
 		}
 		if stmt.While != nil {
 			condition := c.expr(stmt.While)
@@ -92,6 +95,10 @@ type checker struct {
 	functions    map[string]parser.Function
 	capabilities map[string]bool
 	diagnostics  []diagnostic.Diagnostic
+	returnTypes  []string
+	inferred     map[string]string
+	inferring    map[string]bool
+	silent       bool
 }
 
 func exprSpan(expr parser.Expr) diagnostic.Span {
@@ -102,7 +109,71 @@ func exprSpan(expr parser.Expr) diagnostic.Span {
 }
 
 func (c *checker) report(code, message string, span diagnostic.Span) {
+	if c.silent {
+		return
+	}
 	c.diagnostics = append(c.diagnostics, diagnostic.Diagnostic{Code: code, Message: message, Span: span})
+}
+
+func (c *checker) reportInconsistentReturns(types []string) {
+	if len(types) < 2 {
+		return
+	}
+	first := types[0]
+	for _, typ := range types[1:] {
+		if first != Unknown && typ != Unknown && first != typ {
+			c.report("return-type", fmt.Sprintf("function returns both %s and %s", first, typ), diagnostic.Span{})
+			return
+		}
+	}
+}
+
+func inferredKey(name string, args []string) string {
+	return name + "(" + strings.Join(args, ",") + ")"
+}
+
+// functionType specializes a function at a call site so functions such as
+// identity(value) preserve the argument's static type without type syntax.
+func (c *checker) functionType(name string, args []string) string {
+	function, ok := c.functions[name]
+	if !ok {
+		return Unknown
+	}
+	key := inferredKey(name, args)
+	if typ, ok := c.inferred[key]; ok {
+		return typ
+	}
+	if c.inferring[key] {
+		return Unknown
+	}
+	c.inferring[key] = true
+
+	savedEnv, savedReturns, savedSilent := c.env, c.returnTypes, c.silent
+	c.env = map[string]string{}
+	for i, param := range function.Params {
+		typ := Unknown
+		if i < len(args) {
+			typ = args[i]
+		}
+		c.env[param] = typ
+	}
+	c.returnTypes = nil
+	c.silent = true
+	c.checkBody(function.Body)
+	typ := None
+	if len(c.returnTypes) > 0 {
+		typ = c.returnTypes[0]
+		for _, returnType := range c.returnTypes[1:] {
+			if returnType != typ {
+				typ = Unknown
+				break
+			}
+		}
+	}
+	c.env, c.returnTypes, c.silent = savedEnv, savedReturns, savedSilent
+	delete(c.inferring, key)
+	c.inferred[key] = typ
+	return typ
 }
 
 func (c *checker) expr(expr parser.Expr) string {
@@ -170,8 +241,9 @@ func (c *checker) expr(expr parser.Expr) string {
 		if _, ok := c.functions[e.Name]; !ok && !isBuiltin(e.Name) {
 			c.report("undefined-function", fmt.Sprintf("undefined function %q", e.Name), span)
 		}
-		for _, arg := range e.Args {
-			c.expr(arg)
+		argTypes := make([]string, len(e.Args))
+		for i, arg := range e.Args {
+			argTypes[i] = c.expr(arg)
 		}
 		requiredCapability := map[string]string{"read_file": "filesystem.read", "write_file": "filesystem.write", "run": "process.run", "sleep": "time.sleep"}[e.Name]
 		if requiredCapability != "" && !c.capabilities[requiredCapability] {
@@ -195,17 +267,23 @@ func (c *checker) expr(expr parser.Expr) string {
 		case "contains", "starts_with", "ends_with", "matches":
 			return Bool
 		}
+		if _, ok := c.functions[e.Name]; ok {
+			return c.functionType(e.Name, argTypes)
+		}
 		return Unknown
 	case parser.Pipeline:
-		c.expr(e.Left)
+		argTypes := []string{c.expr(e.Left)}
 		for _, arg := range e.Args {
-			c.expr(arg)
+			argTypes = append(argTypes, c.expr(arg))
 		}
 		if _, ok := c.functions[e.Name]; !ok && !isBuiltin(e.Name) {
 			c.report("undefined-function", fmt.Sprintf("undefined function %q", e.Name), span)
 		}
 		if e.Name == "map" || e.Name == "filter" {
 			return List
+		}
+		if _, ok := c.functions[e.Name]; ok {
+			return c.functionType(e.Name, argTypes)
 		}
 		return Unknown
 	case parser.Conditional:
