@@ -32,12 +32,13 @@ Branch: `main`
 - Structured runtime foundations added through commits `03d2423`, `6d29e8b`, `b0b9e35`, `a28d34e`, `d425d6d`, and `7fa4582`.
 - Relative module imports added in commit `1bfc18f`.
 - Capability-scoped file and process effects added in commit `a5e34af`.
+- File output and time capabilities added in commit `1467296`.
 - CLI now checks programs before execution for undefined names, invalid operators and comparisons, non-boolean conditions, mismatched equality, and mismatched conditional branches.
 - Verified locally with `go test ./...` and an invalid program that reports diagnostic codes and exits before execution.
 
 ## Current interruption state
 
-The working tree is clean after the handoff update. The last implementation commit is `a5e34af` (`add capability-scoped file and process effects`).
+The working tree is clean after the handoff update. The last implementation commit is `1467296` (`add file output and time capabilities`).
 
 ## Next action
 
