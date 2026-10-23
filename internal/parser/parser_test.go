@@ -209,3 +209,22 @@ func TestPureTextBuiltins(t *testing.T) {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestForInIteration(t *testing.T) {
+	source := `fn main() { for item in [1, 2, 3] { print item } }`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Value
+	if err = p.Run(func(v Value) { got = append(got, v) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].Int != 1 || got[1].Int != 2 || got[2].Int != 3 {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}

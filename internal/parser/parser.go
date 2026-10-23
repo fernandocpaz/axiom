@@ -311,6 +311,8 @@ type Stmt struct {
 	Body     []Stmt
 	Break    bool
 	Continue bool
+	ForVar   string
+	ForExpr  Expr
 }
 type Function struct {
 	Name   string
@@ -459,6 +461,25 @@ func (p *Parser) stmt() (Stmt, error) {
 		}
 		body, e := p.statements()
 		return Stmt{While: condition, Body: body}, e
+	case lexer.For:
+		p.pos++
+		name := p.peek()
+		if name.Kind != lexer.Ident {
+			return Stmt{}, p.error("expected loop variable")
+		}
+		p.pos++
+		if e := p.expect(lexer.In); e != nil {
+			return Stmt{}, e
+		}
+		collection, e := p.expr(0)
+		if e != nil {
+			return Stmt{}, e
+		}
+		if e = p.expect(lexer.LBrace); e != nil {
+			return Stmt{}, e
+		}
+		body, e := p.statements()
+		return Stmt{ForVar: name.Text, ForExpr: collection, Body: body}, e
 	case lexer.Break:
 		p.pos++
 		return Stmt{Break: true}, nil
@@ -859,6 +880,37 @@ func (rt *Runtime) execute(body []Stmt) (Value, flowKind, error) {
 				if !condition.Bool {
 					break
 				}
+				value, flow, err := rt.execute(stmt.Body)
+				if err != nil {
+					return Value{}, flowNormal, err
+				}
+				if flow == flowReturn {
+					return value, flowReturn, nil
+				}
+				if flow == flowBreak {
+					break
+				}
+			}
+			continue
+		}
+		if stmt.ForVar != "" {
+			collection, err := stmt.ForExpr.eval(rt)
+			if err != nil {
+				return Value{}, flowNormal, err
+			}
+			var items []Value
+			switch collection.Kind {
+			case "list":
+				items = collection.List
+			case "string":
+				for _, char := range []rune(collection.Str) {
+					items = append(items, Value{Kind: "string", Str: string(char)})
+				}
+			default:
+				return Value{}, flowNormal, fmt.Errorf("cannot iterate over %s", collection.Kind)
+			}
+			for _, item := range items {
+				rt.env[stmt.ForVar] = item
 				value, flow, err := rt.execute(stmt.Body)
 				if err != nil {
 					return Value{}, flowNormal, err

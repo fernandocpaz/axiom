@@ -70,6 +70,11 @@ func (c *checker) checkBody(body []parser.Stmt) {
 			}
 			c.checkBody(stmt.Body)
 		}
+		if stmt.ForVar != "" {
+			c.expr(stmt.ForExpr)
+			c.env[stmt.ForVar] = Unknown
+			c.checkBody(stmt.Body)
+		}
 	}
 }
 

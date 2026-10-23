@@ -99,3 +99,9 @@ func TestAcceptsTextBuiltins(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %v", got)
 	}
 }
+
+func TestAcceptsForInIteration(t *testing.T) {
+	if got := checkSource(t, `fn main() { for item in [1, 2] { print item } }`); len(got) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}
