@@ -25,14 +25,17 @@ Branch: `main`
   ```
 
 - Verified locally with `go test ./...` and `go run ./cmd/axiom examples/hello.ax`; output is exactly `Hello, world!`.
+- Static checker and structured diagnostics added in commit `ac94740`.
+- CLI now checks programs before execution for undefined names, invalid operators and comparisons, non-boolean conditions, mismatched equality, and mismatched conditional branches.
+- Verified locally with `go test ./...` and an invalid program that reports diagnostic codes and exits before execution.
 
 ## Current interruption state
 
-The Hello World changes are present in the working tree but were not committed when the prior session was interrupted. The last pushed commit is `c42e554` (`add boolean values and conditional expressions`).
+The working tree is clean. The last pushed commit is `ac94740` (`add static type checking and diagnostics`).
 
 ## Next action
 
-Run the tests again, commit the Hello World milestone, and push it to `origin/main`. Then continue with structured diagnostics and a static type-checking pass.
+Add source spans to AST expressions and diagnostics so errors identify the exact offending source location. Then extend the type representation as the grammar grows.
 
 ## Documentation sequence
 
@@ -40,3 +43,4 @@ Run the tests again, commit the Hello World milestone, and push it to `origin/ma
 - `docs/README-01-bootstrap.md`
 - `docs/README-02-values-and-control.md`
 - `docs/README-03-hello-world.md`
+- `docs/README-04-diagnostics-and-types.md`
