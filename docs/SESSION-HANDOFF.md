@@ -26,16 +26,18 @@ Branch: `main`
 
 - Verified locally with `go test ./...` and `go run ./cmd/axiom examples/hello.ax`; output is exactly `Hello, world!`.
 - Static checker and structured diagnostics added in commit `ac94740`.
+- Source spans added to diagnostics in commit `e8f8682`.
+- Lexer string position tracking and parser trailing-source validation tightened in commit `f6a8cca`.
 - CLI now checks programs before execution for undefined names, invalid operators and comparisons, non-boolean conditions, mismatched equality, and mismatched conditional branches.
 - Verified locally with `go test ./...` and an invalid program that reports diagnostic codes and exits before execution.
 
 ## Current interruption state
 
-The working tree is clean. The last pushed commit is `ac94740` (`add static type checking and diagnostics`).
+The working tree is clean. The last pushed commit is `f6a8cca` (`tighten source scanning and parsing`).
 
 ## Next action
 
-Add source spans to AST expressions and diagnostics so errors identify the exact offending source location. Then extend the type representation as the grammar grows.
+Extend the type representation and grammar carefully, keeping source spans and the end-to-end Hello World regression intact.
 
 ## Documentation sequence
 
