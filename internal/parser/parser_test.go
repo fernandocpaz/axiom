@@ -66,3 +66,23 @@ func TestRejectsTrailingSource(t *testing.T) {
 		t.Fatal("expected trailing source to be rejected")
 	}
 }
+
+func TestFunctionsParametersAndReturns(t *testing.T) {
+	source := `fn add(a, b) { return a + b }
+fn main() { print add(20, 22) }`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Value
+	if err = p.Run(func(v Value) { got = append(got, v) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Kind != "int" || got[0].Int != 42 {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}

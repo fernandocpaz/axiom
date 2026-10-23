@@ -28,7 +28,7 @@ func (v Value) String() string {
 }
 
 type Expr interface {
-	eval(map[string]Value) (Value, error)
+	eval(*Runtime) (Value, error)
 }
 
 // Located preserves source information while keeping expression evaluation small.
@@ -37,7 +37,7 @@ type Located struct {
 	Span  diagnostic.Span
 }
 
-func (e Located) eval(env map[string]Value) (Value, error) { return e.Inner.eval(env) }
+func (e Located) eval(rt *Runtime) (Value, error) { return e.Inner.eval(rt) }
 
 type Number int
 type String string
@@ -48,27 +48,31 @@ type Binary struct {
 	Left, Right Expr
 }
 type Conditional struct{ Test, Yes, No Expr }
+type Call struct {
+	Name string
+	Args []Expr
+}
 
-func (n Number) eval(map[string]Value) (Value, error) { return Value{Kind: "int", Int: int(n)}, nil }
-func (s String) eval(map[string]Value) (Value, error) {
+func (n Number) eval(*Runtime) (Value, error) { return Value{Kind: "int", Int: int(n)}, nil }
+func (s String) eval(*Runtime) (Value, error) {
 	return Value{Kind: "string", Str: string(s)}, nil
 }
-func (b Boolean) eval(map[string]Value) (Value, error) {
+func (b Boolean) eval(*Runtime) (Value, error) {
 	return Value{Kind: "bool", Bool: bool(b)}, nil
 }
-func (v Variable) eval(env map[string]Value) (Value, error) {
-	n, ok := env[string(v)]
+func (v Variable) eval(rt *Runtime) (Value, error) {
+	n, ok := rt.env[string(v)]
 	if !ok {
 		return Value{}, fmt.Errorf("undefined variable %q", v)
 	}
 	return n, nil
 }
-func (b Binary) eval(env map[string]Value) (Value, error) {
-	l, e := b.Left.eval(env)
+func (b Binary) eval(rt *Runtime) (Value, error) {
+	l, e := b.Left.eval(rt)
 	if e != nil {
 		return Value{}, e
 	}
-	r, e := b.Right.eval(env)
+	r, e := b.Right.eval(rt)
 	if e != nil {
 		return Value{}, e
 	}
@@ -108,8 +112,8 @@ func (b Binary) eval(env map[string]Value) (Value, error) {
 	}
 	return Value{}, fmt.Errorf("unknown operator")
 }
-func (c Conditional) eval(env map[string]Value) (Value, error) {
-	t, e := c.Test.eval(env)
+func (c Conditional) eval(rt *Runtime) (Value, error) {
+	t, e := c.Test.eval(rt)
 	if e != nil {
 		return Value{}, e
 	}
@@ -117,17 +121,39 @@ func (c Conditional) eval(env map[string]Value) (Value, error) {
 		return Value{}, fmt.Errorf("if condition requires a boolean")
 	}
 	if t.Bool {
-		return c.Yes.eval(env)
+		return c.Yes.eval(rt)
 	}
-	return c.No.eval(env)
+	return c.No.eval(rt)
+}
+
+func (c Call) eval(rt *Runtime) (Value, error) {
+	args := make([]Value, len(c.Args))
+	for i, arg := range c.Args {
+		value, err := arg.eval(rt)
+		if err != nil {
+			return Value{}, err
+		}
+		args[i] = value
+	}
+	return rt.call(c.Name, args)
 }
 
 type Stmt struct {
-	Let   string
-	Value Expr
-	Print Expr
+	Let    string
+	Value  Expr
+	Print  Expr
+	Return bool
+	Result Expr
 }
-type Program struct{ Body []Stmt }
+type Function struct {
+	Name   string
+	Params []string
+	Body   []Stmt
+}
+type Program struct {
+	Body      []Stmt
+	Functions []Function
+}
 type Parser struct {
 	tokens []lexer.Token
 	pos    int
@@ -135,38 +161,70 @@ type Parser struct {
 
 func Parse(ts []lexer.Token) (Program, error) {
 	p := &Parser{tokens: ts}
-	if e := p.expect(lexer.Fn); e != nil {
+	var functions []Function
+	for p.peek().Kind != lexer.EOF {
+		f, e := p.function()
+		if e != nil {
+			return Program{}, e
+		}
+		functions = append(functions, f)
+	}
+	if e := p.expect(lexer.EOF); e != nil {
 		return Program{}, e
 	}
+	for _, f := range functions {
+		if f.Name == "main" {
+			return Program{Body: f.Body, Functions: functions}, nil
+		}
+	}
+	return Program{}, fmt.Errorf("1:1: expected main function")
+}
+
+func (p *Parser) function() (Function, error) {
+	if e := p.expect(lexer.Fn); e != nil {
+		return Function{}, e
+	}
 	n := p.peek()
-	if n.Kind != lexer.Ident || n.Text != "main" {
-		return Program{}, p.error("expected main")
+	if n.Kind != lexer.Ident {
+		return Function{}, p.error("expected function name")
 	}
 	p.pos++
 	if e := p.expect(lexer.LParen); e != nil {
-		return Program{}, e
+		return Function{}, e
+	}
+	var params []string
+	if p.peek().Kind != lexer.RParen {
+		for {
+			param := p.peek()
+			if param.Kind != lexer.Ident {
+				return Function{}, p.error("expected parameter name")
+			}
+			params = append(params, param.Text)
+			p.pos++
+			if p.peek().Kind != lexer.Comma {
+				break
+			}
+			p.pos++
+		}
 	}
 	if e := p.expect(lexer.RParen); e != nil {
-		return Program{}, e
+		return Function{}, e
 	}
 	if e := p.expect(lexer.LBrace); e != nil {
-		return Program{}, e
+		return Function{}, e
 	}
 	var body []Stmt
 	for p.peek().Kind != lexer.RBrace && p.peek().Kind != lexer.EOF {
 		s, e := p.stmt()
 		if e != nil {
-			return Program{}, e
+			return Function{}, e
 		}
 		body = append(body, s)
 	}
 	if e := p.expect(lexer.RBrace); e != nil {
-		return Program{}, e
+		return Function{}, e
 	}
-	if e := p.expect(lexer.EOF); e != nil {
-		return Program{}, e
-	}
-	return Program{Body: body}, nil
+	return Function{Name: n.Text, Params: params, Body: body}, nil
 }
 func (p *Parser) peek() lexer.Token { return p.tokens[p.pos] }
 func (p *Parser) error(msg string) error {
@@ -199,6 +257,10 @@ func (p *Parser) stmt() (Stmt, error) {
 		p.pos++
 		x, e := p.expr(0)
 		return Stmt{Print: x}, e
+	case lexer.Return:
+		p.pos++
+		x, e := p.expr(0)
+		return Stmt{Return: true, Result: x}, e
 	}
 	return Stmt{}, p.error("expected let or print")
 }
@@ -233,8 +295,30 @@ func (p *Parser) expr(min int) (Expr, error) {
 		left = Located{Inner: Boolean(false), Span: tokenSpan(t)}
 		p.pos++
 	case lexer.Ident:
-		left = Located{Inner: Variable(t.Text), Span: tokenSpan(t)}
 		p.pos++
+		if p.peek().Kind != lexer.LParen {
+			left = Located{Inner: Variable(t.Text), Span: tokenSpan(t)}
+			break
+		}
+		p.pos++
+		var args []Expr
+		if p.peek().Kind != lexer.RParen {
+			for {
+				arg, e := p.expr(0)
+				if e != nil {
+					return nil, e
+				}
+				args = append(args, arg)
+				if p.peek().Kind != lexer.Comma {
+					break
+				}
+				p.pos++
+			}
+		}
+		if e := p.expect(lexer.RParen); e != nil {
+			return nil, e
+		}
+		left = Located{Inner: Call{Name: t.Text, Args: args}, Span: spanFrom(t, p.tokens[p.pos-1])}
 	case lexer.LParen:
 		p.pos++
 		var e error
@@ -320,22 +404,73 @@ func spanBetween(start, end diagnostic.Span) diagnostic.Span {
 	return start
 }
 
-func (pr Program) Run(out func(Value)) error {
-	env := map[string]Value{}
-	for _, s := range pr.Body {
-		if s.Let != "" {
-			v, e := s.Value.eval(env)
-			if e != nil {
-				return e
+type Runtime struct {
+	env   map[string]Value
+	funcs map[string]Function
+	out   func(Value)
+	depth int
+}
+
+type returnValue struct{ value Value }
+
+func (rt *Runtime) call(name string, args []Value) (Value, error) {
+	function, ok := rt.funcs[name]
+	if !ok {
+		return Value{}, fmt.Errorf("undefined function %q", name)
+	}
+	if len(args) != len(function.Params) {
+		return Value{}, fmt.Errorf("function %q expects %d arguments, got %d", name, len(function.Params), len(args))
+	}
+	if rt.depth >= 256 {
+		return Value{}, fmt.Errorf("maximum function call depth exceeded")
+	}
+	previousEnv := rt.env
+	rt.env = map[string]Value{}
+	for i, param := range function.Params {
+		rt.env[param] = args[i]
+	}
+	rt.depth++
+	defer func() {
+		rt.depth--
+		rt.env = previousEnv
+	}()
+	for _, stmt := range function.Body {
+		if stmt.Let != "" {
+			value, err := stmt.Value.eval(rt)
+			if err != nil {
+				return Value{}, err
 			}
-			env[s.Let] = v
-		} else {
-			v, e := s.Print.eval(env)
-			if e != nil {
-				return e
+			rt.env[stmt.Let] = value
+			continue
+		}
+		if stmt.Print != nil {
+			value, err := stmt.Print.eval(rt)
+			if err != nil {
+				return Value{}, err
 			}
-			out(v)
+			rt.out(value)
+			continue
+		}
+		if stmt.Return {
+			value, err := stmt.Result.eval(rt)
+			if err != nil {
+				return Value{}, err
+			}
+			return value, nil
 		}
 	}
-	return nil
+	return Value{}, nil
+}
+
+func (pr Program) Run(out func(Value)) error {
+	functions := map[string]Function{}
+	for _, function := range pr.Functions {
+		functions[function.Name] = function
+	}
+	if _, ok := functions["main"]; !ok {
+		functions["main"] = Function{Name: "main", Body: pr.Body}
+	}
+	rt := &Runtime{env: map[string]Value{}, funcs: functions, out: out}
+	_, err := rt.call("main", nil)
+	return err
 }

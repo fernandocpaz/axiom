@@ -16,20 +16,43 @@ const (
 
 // Check validates a parsed program without executing it.
 func Check(program parser.Program) []diagnostic.Diagnostic {
-	c := &checker{env: map[string]string{}}
-	for _, stmt := range program.Body {
+	functions := map[string]parser.Function{}
+	for _, function := range program.Functions {
+		functions[function.Name] = function
+	}
+	if _, ok := functions["main"]; !ok {
+		functions["main"] = parser.Function{Name: "main", Body: program.Body}
+	}
+	c := &checker{env: map[string]string{}, functions: functions}
+	for _, function := range functions {
+		c.env = map[string]string{}
+		for _, param := range function.Params {
+			c.env[param] = Unknown
+		}
+		c.checkBody(function.Body)
+	}
+	return c.diagnostics
+}
+
+func (c *checker) checkBody(body []parser.Stmt) {
+	for _, stmt := range body {
 		if stmt.Let != "" {
 			t := c.expr(stmt.Value)
 			c.env[stmt.Let] = t
 			continue
 		}
-		c.expr(stmt.Print)
+		if stmt.Print != nil {
+			c.expr(stmt.Print)
+		}
+		if stmt.Return {
+			c.expr(stmt.Result)
+		}
 	}
-	return c.diagnostics
 }
 
 type checker struct {
 	env         map[string]string
+	functions   map[string]parser.Function
 	diagnostics []diagnostic.Diagnostic
 }
 
@@ -66,6 +89,14 @@ func (c *checker) expr(expr parser.Expr) string {
 		return t
 	case parser.Binary:
 		return c.binary(e, span)
+	case parser.Call:
+		if _, ok := c.functions[e.Name]; !ok {
+			c.report("undefined-function", fmt.Sprintf("undefined function %q", e.Name), span)
+		}
+		for _, arg := range e.Args {
+			c.expr(arg)
+		}
+		return Unknown
 	case parser.Conditional:
 		condition := c.expr(e.Test)
 		if condition != Bool && condition != Unknown {

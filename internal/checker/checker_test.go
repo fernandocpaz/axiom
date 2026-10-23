@@ -61,3 +61,9 @@ func TestDiagnosticsCarrySourceSpans(t *testing.T) {
 		t.Fatalf("got span %#v", span)
 	}
 }
+
+func TestAcceptsFunctionCalls(t *testing.T) {
+	if got := checkSource(t, `fn add(a, b) { return a + b } fn main() { print add(20, 22) }`); len(got) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}
