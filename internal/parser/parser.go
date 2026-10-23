@@ -87,6 +87,11 @@ type Call struct {
 	Name string
 	Args []Expr
 }
+type Pipeline struct {
+	Left Expr
+	Name string
+	Args []Expr
+}
 type ListLiteral []Expr
 type RecordLiteral map[string]Expr
 type Field struct {
@@ -244,6 +249,23 @@ func (c Call) eval(rt *Runtime) (Value, error) {
 		args[i] = value
 	}
 	return rt.call(c.Name, args)
+}
+
+func (p Pipeline) eval(rt *Runtime) (Value, error) {
+	value, err := p.Left.eval(rt)
+	if err != nil {
+		return Value{}, err
+	}
+	args := make([]Value, 0, len(p.Args)+1)
+	args = append(args, value)
+	for _, arg := range p.Args {
+		item, err := arg.eval(rt)
+		if err != nil {
+			return Value{}, err
+		}
+		args = append(args, item)
+	}
+	return rt.call(p.Name, args)
 }
 
 func (l ListLiteral) eval(rt *Runtime) (Value, error) {
@@ -552,16 +574,18 @@ func precedence(k lexer.Kind) int {
 	switch k {
 	case lexer.OrOr:
 		return 0
-	case lexer.AndAnd:
+	case lexer.Pipe:
 		return 1
-	case lexer.EqualEqual, lexer.NotEqual:
+	case lexer.AndAnd:
 		return 2
-	case lexer.Less, lexer.LessEqual, lexer.Greater, lexer.GreaterEqual:
+	case lexer.EqualEqual, lexer.NotEqual:
 		return 3
-	case lexer.Plus, lexer.Minus:
+	case lexer.Less, lexer.LessEqual, lexer.Greater, lexer.GreaterEqual:
 		return 4
-	case lexer.Star, lexer.Slash:
+	case lexer.Plus, lexer.Minus:
 		return 5
+	case lexer.Star, lexer.Slash:
+		return 6
 	}
 	return -1
 }
@@ -747,7 +771,20 @@ postfixDone:
 		if e != nil {
 			return nil, e
 		}
-		left = Located{Inner: Binary{Op: op, Left: left, Right: right}, Span: spanBetween(exprSpan(left), exprSpan(right))}
+		if op == lexer.Pipe {
+			located, ok := right.(Located)
+			call, callOK := Expr(nil), false
+			if ok {
+				call, callOK = located.Inner, true
+			}
+			invocation, invocationOK := call.(Call)
+			if !callOK || !invocationOK {
+				return nil, p.error("pipeline target must be a function call")
+			}
+			left = Located{Inner: Pipeline{Left: left, Name: invocation.Name, Args: invocation.Args}, Span: spanBetween(exprSpan(left), exprSpan(right))}
+		} else {
+			left = Located{Inner: Binary{Op: op, Left: left, Right: right}, Span: spanBetween(exprSpan(left), exprSpan(right))}
+		}
 	}
 	return left, nil
 }

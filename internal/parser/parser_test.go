@@ -321,3 +321,24 @@ fn main() {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestPipelineExpressions(t *testing.T) {
+	source := `fn double(value) { return value * 2 }
+fn positive(value) { return value > 2 }
+fn main() { print [1, 2, 3] |> map(double) |> filter(positive) |> len() }`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Value
+	if err = p.Run(func(v Value) { got = v }); err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != "int" || got.Int != 2 {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}

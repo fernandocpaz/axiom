@@ -134,3 +134,9 @@ func TestAcceptsFunctionValues(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %v", got)
 	}
 }
+
+func TestAcceptsPipelines(t *testing.T) {
+	if got := checkSource(t, `fn double(value) { return value * 2 } fn main() { print [1, 2] |> map(double) }`); len(got) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}

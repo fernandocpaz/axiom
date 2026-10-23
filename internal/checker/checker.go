@@ -194,6 +194,18 @@ func (c *checker) expr(expr parser.Expr) string {
 			return Bool
 		}
 		return Unknown
+	case parser.Pipeline:
+		c.expr(e.Left)
+		for _, arg := range e.Args {
+			c.expr(arg)
+		}
+		if _, ok := c.functions[e.Name]; !ok && !isBuiltin(e.Name) {
+			c.report("undefined-function", fmt.Sprintf("undefined function %q", e.Name), span)
+		}
+		if e.Name == "map" || e.Name == "filter" {
+			return List
+		}
+		return Unknown
 	case parser.Conditional:
 		condition := c.expr(e.Test)
 		if condition != Bool && condition != Unknown {
