@@ -149,11 +149,19 @@ func (c *checker) expr(expr parser.Expr) string {
 		}
 		return Int
 	case parser.Call:
-		if _, ok := c.functions[e.Name]; !ok {
+		if _, ok := c.functions[e.Name]; !ok && !isBuiltin(e.Name) {
 			c.report("undefined-function", fmt.Sprintf("undefined function %q", e.Name), span)
 		}
 		for _, arg := range e.Args {
 			c.expr(arg)
+		}
+		switch e.Name {
+		case "len", "number":
+			return Int
+		case "text":
+			return String
+		case "contains", "starts_with", "ends_with", "matches":
+			return Bool
 		}
 		return Unknown
 	case parser.Conditional:
@@ -174,6 +182,15 @@ func (c *checker) expr(expr parser.Expr) string {
 	default:
 		c.report("internal-error", "unknown expression", span)
 		return Unknown
+	}
+}
+
+func isBuiltin(name string) bool {
+	switch name {
+	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches":
+		return true
+	default:
+		return false
 	}
 }
 

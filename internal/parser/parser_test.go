@@ -186,3 +186,26 @@ func TestAssignmentAndStringConcatenation(t *testing.T) {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestPureTextBuiltins(t *testing.T) {
+	source := `fn main() {
+  print len("hello")
+  print matches("pod-api-1", "^pod-.*")
+  print text(number("42"))
+}`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Value
+	if err = p.Run(func(v Value) { got = append(got, v) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].Int != 5 || !got[1].Bool || got[2].Str != "42" {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}

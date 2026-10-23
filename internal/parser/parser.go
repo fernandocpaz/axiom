@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/fernandocpaz/axiom/internal/diagnostic"
 	"github.com/fernandocpaz/axiom/internal/lexer"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -714,6 +715,9 @@ const (
 )
 
 func (rt *Runtime) call(name string, args []Value) (Value, error) {
+	if value, ok, err := builtin(name, args); ok {
+		return value, err
+	}
 	function, ok := rt.funcs[name]
 	if !ok {
 		return Value{}, fmt.Errorf("undefined function %q", name)
@@ -745,6 +749,81 @@ func (rt *Runtime) call(name string, args []Value) (Value, error) {
 		return Value{}, fmt.Errorf("loop control used outside loop")
 	}
 	return Value{}, nil
+}
+
+func builtin(name string, args []Value) (Value, bool, error) {
+	need := func(count int) error {
+		if len(args) != count {
+			return fmt.Errorf("builtin %q expects %d arguments, got %d", name, count, len(args))
+		}
+		return nil
+	}
+	switch name {
+	case "len":
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		switch args[0].Kind {
+		case "string":
+			return Value{Kind: "int", Int: len([]rune(args[0].Str))}, true, nil
+		case "list":
+			return Value{Kind: "int", Int: len(args[0].List)}, true, nil
+		case "record":
+			return Value{Kind: "int", Int: len(args[0].Fields)}, true, nil
+		default:
+			return Value{}, true, fmt.Errorf("len does not support %s", args[0].Kind)
+		}
+	case "text":
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		return Value{Kind: "string", Str: args[0].String()}, true, nil
+	case "number":
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind == "int" {
+			return args[0], true, nil
+		}
+		if args[0].Kind != "string" {
+			return Value{}, true, fmt.Errorf("number requires text or int")
+		}
+		value, err := strconv.Atoi(strings.TrimSpace(args[0].Str))
+		if err != nil {
+			return Value{}, true, fmt.Errorf("invalid number %q", args[0].Str)
+		}
+		return Value{Kind: "int", Int: value}, true, nil
+	case "contains", "starts_with", "ends_with":
+		if err := need(2); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "string" || args[1].Kind != "string" {
+			return Value{}, true, fmt.Errorf("%s requires text arguments", name)
+		}
+		matched := false
+		switch name {
+		case "contains":
+			matched = strings.Contains(args[0].Str, args[1].Str)
+		case "starts_with":
+			matched = strings.HasPrefix(args[0].Str, args[1].Str)
+		case "ends_with":
+			matched = strings.HasSuffix(args[0].Str, args[1].Str)
+		}
+		return Value{Kind: "bool", Bool: matched}, true, nil
+	case "matches":
+		if err := need(2); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "string" || args[1].Kind != "string" {
+			return Value{}, true, fmt.Errorf("matches requires text arguments")
+		}
+		matched, err := regexp.MatchString(args[1].Str, args[0].Str)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("invalid regular expression: %w", err)
+		}
+		return Value{Kind: "bool", Bool: matched}, true, nil
+	}
+	return Value{}, false, nil
 }
 
 func (rt *Runtime) execute(body []Stmt) (Value, flowKind, error) {

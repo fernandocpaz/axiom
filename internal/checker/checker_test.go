@@ -93,3 +93,9 @@ func TestChecksAssignmentTypes(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %v", got)
 	}
 }
+
+func TestAcceptsTextBuiltins(t *testing.T) {
+	if got := checkSource(t, `fn main() { print matches("api", "a.*") print len([1, 2]) }`); len(got) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}
