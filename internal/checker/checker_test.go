@@ -111,3 +111,9 @@ func TestAcceptsTryCatch(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %v", got)
 	}
 }
+
+func TestAcceptsJSONBuiltins(t *testing.T) {
+	if got := checkSource(t, `fn main() { print json_encode(record { ok: true }) }`); len(got) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}

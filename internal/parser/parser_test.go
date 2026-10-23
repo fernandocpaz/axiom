@@ -253,3 +253,27 @@ func TestTryCatchRecoversRuntimeErrors(t *testing.T) {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestJSONBuiltins(t *testing.T) {
+	source := `fn main() {
+  let encoded = json_encode(record { name: "api", ready: true, ports: [80, 443] })
+  let decoded = json_decode(encoded)
+  print decoded.name
+  print decoded.ports[1]
+}`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Value
+	if err = p.Run(func(v Value) { got = append(got, v) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Str != "api" || got[1].Int != 443 {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}

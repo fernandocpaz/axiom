@@ -168,8 +168,10 @@ func (c *checker) expr(expr parser.Expr) string {
 		switch e.Name {
 		case "len", "number":
 			return Int
-		case "text":
+		case "text", "json_encode":
 			return String
+		case "json_decode":
+			return Unknown
 		case "contains", "starts_with", "ends_with", "matches":
 			return Bool
 		}
@@ -197,7 +199,7 @@ func (c *checker) expr(expr parser.Expr) string {
 
 func isBuiltin(name string) bool {
 	switch name {
-	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches":
+	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches", "json_encode", "json_decode":
 		return true
 	default:
 		return false

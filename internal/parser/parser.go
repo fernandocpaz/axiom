@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/fernandocpaz/axiom/internal/diagnostic"
 	"github.com/fernandocpaz/axiom/internal/lexer"
@@ -868,8 +869,95 @@ func builtin(name string, args []Value) (Value, bool, error) {
 			return Value{}, true, fmt.Errorf("invalid regular expression: %w", err)
 		}
 		return Value{Kind: "bool", Bool: matched}, true, nil
+	case "json_encode":
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		encoded, err := json.Marshal(toJSON(args[0]))
+		if err != nil {
+			return Value{}, true, err
+		}
+		return Value{Kind: "string", Str: string(encoded)}, true, nil
+	case "json_decode":
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "string" {
+			return Value{}, true, fmt.Errorf("json_decode requires text")
+		}
+		var decoded interface{}
+		if err := json.Unmarshal([]byte(args[0].Str), &decoded); err != nil {
+			return Value{}, true, fmt.Errorf("invalid JSON: %w", err)
+		}
+		value, err := fromJSON(decoded)
+		return value, true, err
 	}
 	return Value{}, false, nil
+}
+
+func toJSON(value Value) interface{} {
+	switch value.Kind {
+	case "none":
+		return nil
+	case "int":
+		return value.Int
+	case "bool":
+		return value.Bool
+	case "string":
+		return value.Str
+	case "list":
+		items := make([]interface{}, len(value.List))
+		for i, item := range value.List {
+			items[i] = toJSON(item)
+		}
+		return items
+	case "record":
+		fields := make(map[string]interface{}, len(value.Fields))
+		for name, item := range value.Fields {
+			fields[name] = toJSON(item)
+		}
+		return fields
+	default:
+		return nil
+	}
+}
+
+func fromJSON(value interface{}) (Value, error) {
+	switch value := value.(type) {
+	case nil:
+		return Value{Kind: "none"}, nil
+	case bool:
+		return Value{Kind: "bool", Bool: value}, nil
+	case string:
+		return Value{Kind: "string", Str: value}, nil
+	case float64:
+		if value != float64(int(value)) {
+			return Value{}, fmt.Errorf("JSON number %v is not an integer", value)
+		}
+		return Value{Kind: "int", Int: int(value)}, nil
+	case []interface{}:
+		items := make([]Value, len(value))
+		for i, item := range value {
+			converted, err := fromJSON(item)
+			if err != nil {
+				return Value{}, err
+			}
+			items[i] = converted
+		}
+		return Value{Kind: "list", List: items}, nil
+	case map[string]interface{}:
+		fields := make(map[string]Value, len(value))
+		for name, item := range value {
+			converted, err := fromJSON(item)
+			if err != nil {
+				return Value{}, err
+			}
+			fields[name] = converted
+		}
+		return Value{Kind: "record", Fields: fields}, nil
+	default:
+		return Value{}, fmt.Errorf("unsupported JSON value")
+	}
 }
 
 func (rt *Runtime) execute(body []Stmt) (Value, flowKind, error) {
