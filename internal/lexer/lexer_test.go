@@ -31,3 +31,13 @@ func TestScanString(t *testing.T) {
 		t.Fatalf("unexpected string token: %#v", ts[1])
 	}
 }
+
+func TestStringAdvancesColumnsCorrectly(t *testing.T) {
+	ts, err := Scan(`print "hello" print "world"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) < 4 || ts[2].Kind != Print || ts[2].Col != 15 {
+		t.Fatalf("unexpected token positions: %#v", ts)
+	}
+}

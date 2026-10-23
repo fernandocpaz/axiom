@@ -56,3 +56,13 @@ func TestStringOutput(t *testing.T) {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestRejectsTrailingSource(t *testing.T) {
+	ts, err := lexer.Scan("fn main() {} print 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Parse(ts); err == nil {
+		t.Fatal("expected trailing source to be rejected")
+	}
+}

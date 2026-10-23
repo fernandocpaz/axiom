@@ -74,13 +74,20 @@ func Scan(src string) ([]Token, error) {
 		if c == '"' {
 			j := i + 1
 			text := ""
-			for j < len(src) && src[j] != '"' {
+			closed := false
+			col++ // opening quote
+			for j < len(src) {
+				if src[j] == '"' {
+					closed = true
+					j++
+					col++
+					break
+				}
 				if src[j] == '\\' {
 					if j+1 >= len(src) {
 						return nil, fmt.Errorf("%d:%d: unterminated string", startLine, startCol)
 					}
-					j++
-					switch src[j] {
+					switch src[j+1] {
 					case 'n':
 						text += "\n"
 					case 't':
@@ -90,9 +97,10 @@ func Scan(src string) ([]Token, error) {
 					case '\\':
 						text += "\\"
 					default:
-						return nil, fmt.Errorf("%d:%d: unknown string escape \\%c", line, col, src[j])
+						return nil, fmt.Errorf("%d:%d: unknown string escape \\%c", line, col, src[j+1])
 					}
-					j++
+					j += 2
+					col += 2
 					continue
 				}
 				if src[j] == '\n' {
@@ -104,12 +112,11 @@ func Scan(src string) ([]Token, error) {
 				text += string(src[j])
 				j++
 			}
-			if j >= len(src) {
+			if !closed {
 				return nil, fmt.Errorf("%d:%d: unterminated string", startLine, startCol)
 			}
 			out = append(out, Token{String, text, startLine, startCol})
-			col += j - i + 1
-			i = j + 1
+			i = j
 			continue
 		}
 		if c >= '0' && c <= '9' {

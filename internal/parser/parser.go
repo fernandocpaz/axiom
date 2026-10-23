@@ -163,6 +163,9 @@ func Parse(ts []lexer.Token) (Program, error) {
 	if e := p.expect(lexer.RBrace); e != nil {
 		return Program{}, e
 	}
+	if e := p.expect(lexer.EOF); e != nil {
+		return Program{}, e
+	}
 	return Program{Body: body}, nil
 }
 func (p *Parser) peek() lexer.Token { return p.tokens[p.pos] }
