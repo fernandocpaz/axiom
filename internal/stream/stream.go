@@ -43,7 +43,9 @@ func Errors(err error) Stream {
 
 func (s Stream) Map(transform func(parser.Value) (parser.Value, error)) Stream {
 	return New(func(ctx context.Context, output chan<- Event) {
-		for event := range s.events(ctx) {
+		input := s.events(ctx)
+		defer input.stop()
+		for event := range input.ch {
 			if event.Err != nil {
 				if !send(ctx, output, event) {
 					return
@@ -63,7 +65,9 @@ func (s Stream) Map(transform func(parser.Value) (parser.Value, error)) Stream {
 
 func (s Stream) Filter(keep func(parser.Value) (bool, error)) Stream {
 	return New(func(ctx context.Context, output chan<- Event) {
-		for event := range s.events(ctx) {
+		input := s.events(ctx)
+		defer input.stop()
+		for event := range input.ch {
 			if event.Err != nil {
 				if !send(ctx, output, event) {
 					return
@@ -90,7 +94,9 @@ func (s Stream) Take(limit int) Stream {
 			return
 		}
 		count := 0
-		for event := range s.events(ctx) {
+		input := s.events(ctx)
+		defer input.stop()
+		for event := range input.ch {
 			if !send(ctx, output, event) {
 				return
 			}
@@ -110,9 +116,11 @@ func (s Stream) Buffer(capacity int) Stream {
 	}
 	return New(func(ctx context.Context, output chan<- Event) {
 		input := make(chan Event, capacity)
+		upstream := s.events(ctx)
+		defer upstream.stop()
 		go func() {
 			defer close(input)
-			for event := range s.events(ctx) {
+			for event := range upstream.ch {
 				select {
 				case input <- event:
 				case <-ctx.Done():
@@ -128,6 +136,52 @@ func (s Stream) Buffer(capacity int) Stream {
 	})
 }
 
+// BufferLatest keeps at most capacity events while allowing a live consumer
+// to keep up with the newest data. When the queue is full, the oldest pending
+// event is discarded. This is useful for TailA views where stale log lines
+// are less valuable than current output.
+func (s Stream) BufferLatest(capacity int) Stream {
+	if capacity < 1 {
+		capacity = 1
+	}
+	return New(func(ctx context.Context, output chan<- Event) {
+		input := s.events(ctx)
+		defer input.stop()
+
+		queue := make([]Event, 0, capacity)
+		for {
+			var next chan<- Event
+			var first Event
+			if len(queue) > 0 {
+				next = output
+				first = queue[0]
+			}
+
+			select {
+			case event, ok := <-input.ch:
+				if !ok {
+					for len(queue) > 0 {
+						if !send(ctx, output, queue[0]) {
+							return
+						}
+						queue = queue[1:]
+					}
+					return
+				}
+				if len(queue) == capacity {
+					copy(queue, queue[1:])
+					queue = queue[:capacity-1]
+				}
+				queue = append(queue, event)
+			case next <- first:
+				queue = queue[1:]
+			case <-ctx.Done():
+				return
+			}
+		}
+	})
+}
+
 func Merge(sources ...Stream) Stream {
 	return New(func(ctx context.Context, output chan<- Event) {
 		var workers sync.WaitGroup
@@ -135,7 +189,9 @@ func Merge(sources ...Stream) Stream {
 		for _, source := range sources {
 			go func(source Stream) {
 				defer workers.Done()
-				for event := range source.events(ctx) {
+				input := source.events(ctx)
+				defer input.stop()
+				for event := range input.ch {
 					if !send(ctx, output, event) {
 						return
 					}
@@ -148,7 +204,9 @@ func Merge(sources ...Stream) Stream {
 
 func (s Stream) Collect(ctx context.Context) ([]parser.Value, error) {
 	var values []parser.Value
-	for event := range s.events(ctx) {
+	input := s.events(ctx)
+	defer input.stop()
+	for event := range input.ch {
 		if event.Err != nil {
 			return nil, event.Err
 		}
@@ -157,15 +215,22 @@ func (s Stream) Collect(ctx context.Context) ([]parser.Value, error) {
 	return values, nil
 }
 
-func (s Stream) events(ctx context.Context) <-chan Event {
+type eventsResult struct {
+	ch   <-chan Event
+	stop func()
+}
+
+func (s Stream) events(ctx context.Context) eventsResult {
 	output := make(chan Event)
+	child, cancel := context.WithCancel(ctx)
 	go func() {
 		defer close(output)
+		defer cancel()
 		if s.source != nil {
-			s.source(ctx, output)
+			s.source(child, output)
 		}
 	}()
-	return output
+	return eventsResult{ch: output, stop: cancel}
 }
 
 func send(ctx context.Context, output chan<- Event, event Event) bool {
