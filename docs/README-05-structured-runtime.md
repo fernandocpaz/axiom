@@ -14,6 +14,9 @@ Implemented:
 - string concatenation;
 - pure builtins for length, conversion, text predicates, and regular-expression
   matching;
+- relative module imports with cycle detection;
+- explicit `allow` declarations for capability-scoped file reads and process
+  execution;
 - static checking and runtime tests for these features.
 
 Example:
