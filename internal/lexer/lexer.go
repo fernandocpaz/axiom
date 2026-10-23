@@ -39,6 +39,9 @@ const (
 	Dot
 	LBracket
 	RBracket
+	While
+	Break
+	Continue
 )
 
 type Token struct {
@@ -55,7 +58,7 @@ func (t Token) String() string {
 }
 
 func name(k Kind) string {
-	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">=", Comma: ",", Return: "return", None: "none", Record: "record", Colon: ":", Dot: ".", LBracket: "[", RBracket: "]"} {
+	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">=", Comma: ",", Return: "return", None: "none", Record: "record", Colon: ":", Dot: ".", LBracket: "[", RBracket: "]", While: "while", Break: "break", Continue: "continue"} {
 		if v != "" && k == n {
 			return v
 		}
@@ -173,6 +176,15 @@ func Scan(src string) ([]Token, error) {
 			}
 			if text == "record" {
 				k = Record
+			}
+			if text == "while" {
+				k = While
+			}
+			if text == "break" {
+				k = Break
+			}
+			if text == "continue" {
+				k = Continue
 			}
 			out = append(out, Token{k, text, startLine, startCol})
 			col += j - i

@@ -73,3 +73,10 @@ func TestAcceptsStructuredValues(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %v", got)
 	}
 }
+
+func TestChecksWhileConditions(t *testing.T) {
+	got := checkSource(t, `fn main() { while 1 { break } }`)
+	if len(got) != 1 || got[0] != "condition-type" {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}

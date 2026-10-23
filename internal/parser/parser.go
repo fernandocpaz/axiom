@@ -237,11 +237,15 @@ func (i Index) eval(rt *Runtime) (Value, error) {
 }
 
 type Stmt struct {
-	Let    string
-	Value  Expr
-	Print  Expr
-	Return bool
-	Result Expr
+	Let      string
+	Value    Expr
+	Print    Expr
+	Return   bool
+	Result   Expr
+	While    Expr
+	Body     []Stmt
+	Break    bool
+	Continue bool
 }
 type Function struct {
 	Name   string
@@ -311,18 +315,26 @@ func (p *Parser) function() (Function, error) {
 	if e := p.expect(lexer.LBrace); e != nil {
 		return Function{}, e
 	}
+	body, e := p.statements()
+	if e != nil {
+		return Function{}, e
+	}
+	return Function{Name: n.Text, Params: params, Body: body}, nil
+}
+
+func (p *Parser) statements() ([]Stmt, error) {
 	var body []Stmt
 	for p.peek().Kind != lexer.RBrace && p.peek().Kind != lexer.EOF {
 		s, e := p.stmt()
 		if e != nil {
-			return Function{}, e
+			return nil, e
 		}
 		body = append(body, s)
 	}
 	if e := p.expect(lexer.RBrace); e != nil {
-		return Function{}, e
+		return nil, e
 	}
-	return Function{Name: n.Text, Params: params, Body: body}, nil
+	return body, nil
 }
 func (p *Parser) peek() lexer.Token { return p.tokens[p.pos] }
 func (p *Parser) error(msg string) error {
@@ -359,6 +371,23 @@ func (p *Parser) stmt() (Stmt, error) {
 		p.pos++
 		x, e := p.expr(0)
 		return Stmt{Return: true, Result: x}, e
+	case lexer.While:
+		p.pos++
+		condition, e := p.expr(0)
+		if e != nil {
+			return Stmt{}, e
+		}
+		if e = p.expect(lexer.LBrace); e != nil {
+			return Stmt{}, e
+		}
+		body, e := p.statements()
+		return Stmt{While: condition, Body: body}, e
+	case lexer.Break:
+		p.pos++
+		return Stmt{Break: true}, nil
+	case lexer.Continue:
+		p.pos++
+		return Stmt{Continue: true}, nil
 	}
 	return Stmt{}, p.error("expected let or print")
 }
@@ -588,7 +617,14 @@ type Runtime struct {
 	depth int
 }
 
-type returnValue struct{ value Value }
+type flowKind int
+
+const (
+	flowNormal flowKind = iota
+	flowReturn
+	flowBreak
+	flowContinue
+)
 
 func (rt *Runtime) call(name string, args []Value) (Value, error) {
 	function, ok := rt.funcs[name]
@@ -611,19 +647,58 @@ func (rt *Runtime) call(name string, args []Value) (Value, error) {
 		rt.depth--
 		rt.env = previousEnv
 	}()
-	for _, stmt := range function.Body {
+	value, flow, err := rt.execute(function.Body)
+	if err != nil {
+		return Value{}, err
+	}
+	if flow == flowReturn {
+		return value, nil
+	}
+	if flow == flowBreak || flow == flowContinue {
+		return Value{}, fmt.Errorf("loop control used outside loop")
+	}
+	return Value{}, nil
+}
+
+func (rt *Runtime) execute(body []Stmt) (Value, flowKind, error) {
+	for _, stmt := range body {
 		if stmt.Let != "" {
 			value, err := stmt.Value.eval(rt)
 			if err != nil {
-				return Value{}, err
+				return Value{}, flowNormal, err
 			}
 			rt.env[stmt.Let] = value
+			continue
+		}
+		if stmt.While != nil {
+			for {
+				condition, err := stmt.While.eval(rt)
+				if err != nil {
+					return Value{}, flowNormal, err
+				}
+				if condition.Kind != "bool" {
+					return Value{}, flowNormal, fmt.Errorf("while condition requires a boolean")
+				}
+				if !condition.Bool {
+					break
+				}
+				value, flow, err := rt.execute(stmt.Body)
+				if err != nil {
+					return Value{}, flowNormal, err
+				}
+				if flow == flowReturn {
+					return value, flowReturn, nil
+				}
+				if flow == flowBreak {
+					break
+				}
+			}
 			continue
 		}
 		if stmt.Print != nil {
 			value, err := stmt.Print.eval(rt)
 			if err != nil {
-				return Value{}, err
+				return Value{}, flowNormal, err
 			}
 			rt.out(value)
 			continue
@@ -631,12 +706,18 @@ func (rt *Runtime) call(name string, args []Value) (Value, error) {
 		if stmt.Return {
 			value, err := stmt.Result.eval(rt)
 			if err != nil {
-				return Value{}, err
+				return Value{}, flowNormal, err
 			}
-			return value, nil
+			return value, flowReturn, nil
+		}
+		if stmt.Break {
+			return Value{}, flowBreak, nil
+		}
+		if stmt.Continue {
+			return Value{}, flowContinue, nil
 		}
 	}
-	return Value{}, nil
+	return Value{}, flowNormal, nil
 }
 
 func (pr Program) Run(out func(Value)) error {

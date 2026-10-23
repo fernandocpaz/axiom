@@ -50,6 +50,13 @@ func (c *checker) checkBody(body []parser.Stmt) {
 		if stmt.Return {
 			c.expr(stmt.Result)
 		}
+		if stmt.While != nil {
+			condition := c.expr(stmt.While)
+			if condition != Bool && condition != Unknown {
+				c.report("condition-type", fmt.Sprintf("while condition must be bool, got %s", condition), exprSpan(stmt.While))
+			}
+			c.checkBody(stmt.Body)
+		}
 	}
 }
 

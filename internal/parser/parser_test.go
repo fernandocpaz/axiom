@@ -110,3 +110,35 @@ func TestStructuredValues(t *testing.T) {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestWhileBreakAndContinue(t *testing.T) {
+	source := `fn main() {
+  let n = 0
+  while n < 5 {
+    let n = n + 1
+    continue
+  }
+  print n
+  let m = 0
+  while m < 5 {
+    let m = m + 1
+    print m
+    break
+  }
+}`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Value
+	if err = p.Run(func(v Value) { got = append(got, v) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Int != 5 || got[1].Int != 1 {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}
