@@ -33,7 +33,9 @@ Axiom will eventually combine:
 - typed model, retrieval, and tool operations;
 - a compiler pipeline targeting MLIR/LLVM and existing CPU/GPU/WebAssembly targets.
 
-The next implementation milestone is source-spanned diagnostics and a richer type representation. See [`docs/README-04-diagnostics-and-types.md`](docs/README-04-diagnostics-and-types.md).
+The long-term implementation target is TailA: a full Axiom-native port of the
+active Tailg product. See the [TailA parity contract](docs/TAILA-PARITY.md) and
+the existing [diagnostics milestone](docs/README-04-diagnostics-and-types.md).
 
 The compiler backend is intentionally deferred until the language semantics are stable. See [`docs/README-00-vision.md`](docs/README-00-vision.md) and [`docs/README-01-bootstrap.md`](docs/README-01-bootstrap.md).
 
