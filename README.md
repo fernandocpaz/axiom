@@ -4,7 +4,9 @@ Axiom is an experimental AI-native programming language for software that is eff
 
 ## Status
 
-Milestone 3 is complete: Axiom can statically check primitive expressions and emit machine-readable diagnostics before running a program. It also runs a real `Hello, world!` program with string literals, alongside arithmetic, boolean values, comparisons, and conditional expressions.
+The language kernel now includes structured values, user-defined functions,
+controlled loops, mutable bindings, text/regex builtins, and source-spanned
+static diagnostics. It also runs a real `Hello, world!` program end to end.
 
 This repository is being developed incrementally. Each milestone has a short design record in [`docs/`](docs/).
 
