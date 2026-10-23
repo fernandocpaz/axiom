@@ -1,0 +1,69 @@
+allow "kubernetes.discovery"
+allow "kubernetes.logs"
+allow "terminal.write"
+
+fn running(pod) {
+  return pod.phase == "Running"
+}
+
+fn has_restarts(pod) {
+  return pod.restarts > 0
+}
+
+fn render_pod(pod) {
+  return record {
+    name: pod.name,
+    namespace: pod.namespace,
+    status: pod.phase,
+    restarts: pod.restarts,
+    attention: has_restarts(pod)
+  }
+}
+
+fn visible_log(log) {
+  return log.level != "debug" && !matches(log.message, "health|ready")
+}
+
+fn render_log(log) {
+  return record {
+    text: "[" + log.pod + "][" + log.container + "] " + log.message,
+    level: log.level
+  }
+}
+
+fn main() {
+  let pods = [
+    record { name: "api-7d9", namespace: "payments", phase: "Running", restarts: 2 },
+    record { name: "worker-54b", namespace: "payments", phase: "Running", restarts: 0 },
+    record { name: "db-0", namespace: "payments", phase: "Pending", restarts: 1 }
+  ]
+
+  let running_pods = pods |> filter(running)
+  let attention_pods = running_pods |> filter(has_restarts)
+  let report = attention_pods |> map(render_pod)
+  let logs = [
+    record { pod: "api-7d9", container: "server", level: "info", message: "request completed" },
+    record { pod: "api-7d9", container: "server", level: "debug", message: "health probe" },
+    record { pod: "worker-54b", container: "worker", level: "error", message: "queue connection lost" }
+  ]
+  let visible_logs = logs |> filter(visible_log) |> map(render_log)
+
+  let wire = json_encode(record {
+    source: "fixture",
+    pods: report,
+    logs: visible_logs,
+    count: len(report) + len(visible_logs)
+  })
+  let decoded = json_decode(wire)
+  print decoded.source
+  print decoded.pods[0].name
+  print decoded.pods[0].attention
+  print decoded.logs[1].text
+
+  try {
+    let broken = json_decode("not valid kubernetes json")
+    print broken
+  } catch error {
+    print "fixture decode recovered: " + error
+  }
+}
