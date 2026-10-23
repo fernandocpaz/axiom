@@ -39,6 +39,19 @@ func Check(program parser.Program) []diagnostic.Diagnostic {
 
 func (c *checker) checkBody(body []parser.Stmt) {
 	for _, stmt := range body {
+		if stmt.Set != "" {
+			valueType := c.expr(stmt.Value)
+			previous, ok := c.env[stmt.Set]
+			if !ok {
+				c.report("undefined-name", fmt.Sprintf("undefined variable %q", stmt.Set), exprSpan(stmt.Value))
+			} else if previous != Unknown && valueType != Unknown && previous != valueType {
+				c.report("assignment-type", fmt.Sprintf("cannot assign %s to %s variable %q", valueType, previous, stmt.Set), exprSpan(stmt.Value))
+			}
+			if ok {
+				c.env[stmt.Set] = valueType
+			}
+			continue
+		}
 		if stmt.Let != "" {
 			t := c.expr(stmt.Value)
 			c.env[stmt.Let] = t
@@ -177,6 +190,9 @@ func (c *checker) binary(expr parser.Binary, span diagnostic.Span) string {
 		}
 		return Bool
 	case lexer.Plus, lexer.Minus, lexer.Star, lexer.Slash:
+		if expr.Op == lexer.Plus && left == String && right == String {
+			return String
+		}
 		if left != Int || right != Int {
 			c.report("operator-type", fmt.Sprintf("operator %v requires int operands, got %s and %s", expr.Op, left, right), span)
 			return Unknown

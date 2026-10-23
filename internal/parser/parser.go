@@ -144,6 +144,9 @@ func (b Binary) eval(rt *Runtime) (Value, error) {
 		}
 		return Value{Kind: "bool", Bool: l.Bool || r.Bool}, nil
 	}
+	if b.Op == lexer.Plus && l.Kind == "string" && r.Kind == "string" {
+		return Value{Kind: "string", Str: l.Str + r.Str}, nil
+	}
 	if l.Kind != "int" || r.Kind != "int" {
 		return Value{}, fmt.Errorf("operator requires integers")
 	}
@@ -299,6 +302,7 @@ func (i Index) eval(rt *Runtime) (Value, error) {
 type Stmt struct {
 	Let      string
 	Value    Expr
+	Set      string
 	Print    Expr
 	Return   bool
 	Result   Expr
@@ -423,6 +427,18 @@ func (p *Parser) stmt() (Stmt, error) {
 		}
 		x, e := p.expr(0)
 		return Stmt{Let: n.Text, Value: x}, e
+	case lexer.Set:
+		p.pos++
+		name := p.peek()
+		if name.Kind != lexer.Ident {
+			return Stmt{}, p.error("expected binding name")
+		}
+		p.pos++
+		if e := p.expect(lexer.Equal); e != nil {
+			return Stmt{}, e
+		}
+		x, e := p.expr(0)
+		return Stmt{Set: name.Text, Value: x}, e
 	case lexer.Print:
 		p.pos++
 		x, e := p.expr(0)
@@ -733,6 +749,17 @@ func (rt *Runtime) call(name string, args []Value) (Value, error) {
 
 func (rt *Runtime) execute(body []Stmt) (Value, flowKind, error) {
 	for _, stmt := range body {
+		if stmt.Set != "" {
+			value, err := stmt.Value.eval(rt)
+			if err != nil {
+				return Value{}, flowNormal, err
+			}
+			if _, ok := rt.env[stmt.Set]; !ok {
+				return Value{}, flowNormal, fmt.Errorf("undefined variable %q", stmt.Set)
+			}
+			rt.env[stmt.Set] = value
+			continue
+		}
 		if stmt.Let != "" {
 			value, err := stmt.Value.eval(rt)
 			if err != nil {

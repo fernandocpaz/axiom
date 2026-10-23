@@ -163,3 +163,26 @@ func TestLogicalAndUnaryExpressions(t *testing.T) {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestAssignmentAndStringConcatenation(t *testing.T) {
+	source := `fn main() {
+  let greeting = "Hello"
+  set greeting = greeting + ", world!"
+  print greeting
+}`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Value
+	if err = p.Run(func(v Value) { got = v }); err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != "string" || got.Str != "Hello, world!" {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}
