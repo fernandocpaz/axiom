@@ -42,3 +42,22 @@ func TestReportsStaticTypeErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestDiagnosticsCarrySourceSpans(t *testing.T) {
+	ts, err := lexer.Scan("fn main() {\n  print true + 1\n}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := parser.Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := Check(p)
+	if len(diagnostics) != 1 {
+		t.Fatalf("got %d diagnostics, want 1", len(diagnostics))
+	}
+	span := diagnostics[0].Span
+	if span.Line != 2 || span.Column != 9 || span.EndLine != 2 || span.EndColumn != 17 {
+		t.Fatalf("got span %#v", span)
+	}
+}

@@ -33,11 +33,23 @@ type checker struct {
 	diagnostics []diagnostic.Diagnostic
 }
 
-func (c *checker) report(code, message string) {
-	c.diagnostics = append(c.diagnostics, diagnostic.Diagnostic{Code: code, Message: message})
+func exprSpan(expr parser.Expr) diagnostic.Span {
+	if located, ok := expr.(parser.Located); ok {
+		return located.Span
+	}
+	return diagnostic.Span{}
+}
+
+func (c *checker) report(code, message string, span diagnostic.Span) {
+	c.diagnostics = append(c.diagnostics, diagnostic.Diagnostic{Code: code, Message: message, Span: span})
 }
 
 func (c *checker) expr(expr parser.Expr) string {
+	span := diagnostic.Span{}
+	if located, ok := expr.(parser.Located); ok {
+		span = located.Span
+		expr = located.Inner
+	}
 	switch e := expr.(type) {
 	case parser.Number:
 		return Int
@@ -48,21 +60,21 @@ func (c *checker) expr(expr parser.Expr) string {
 	case parser.Variable:
 		t, ok := c.env[string(e)]
 		if !ok {
-			c.report("undefined-name", fmt.Sprintf("undefined variable %q", string(e)))
+			c.report("undefined-name", fmt.Sprintf("undefined variable %q", string(e)), span)
 			return Unknown
 		}
 		return t
 	case parser.Binary:
-		return c.binary(e)
+		return c.binary(e, span)
 	case parser.Conditional:
 		condition := c.expr(e.Test)
 		if condition != Bool && condition != Unknown {
-			c.report("condition-type", fmt.Sprintf("if condition must be bool, got %s", condition))
+			c.report("condition-type", fmt.Sprintf("if condition must be bool, got %s", condition), exprSpan(e.Test))
 		}
 		yes := c.expr(e.Yes)
 		no := c.expr(e.No)
 		if yes != Unknown && no != Unknown && yes != no {
-			c.report("branch-type", fmt.Sprintf("if branches must have the same type, got %s and %s", yes, no))
+			c.report("branch-type", fmt.Sprintf("if branches must have the same type, got %s and %s", yes, no), span)
 			return Unknown
 		}
 		if yes == Unknown {
@@ -70,12 +82,12 @@ func (c *checker) expr(expr parser.Expr) string {
 		}
 		return yes
 	default:
-		c.report("internal-error", "unknown expression")
+		c.report("internal-error", "unknown expression", span)
 		return Unknown
 	}
 }
 
-func (c *checker) binary(expr parser.Binary) string {
+func (c *checker) binary(expr parser.Binary, span diagnostic.Span) string {
 	left, right := c.expr(expr.Left), c.expr(expr.Right)
 	if left == Unknown || right == Unknown {
 		return Unknown
@@ -83,22 +95,22 @@ func (c *checker) binary(expr parser.Binary) string {
 	switch expr.Op {
 	case lexer.Plus, lexer.Minus, lexer.Star, lexer.Slash:
 		if left != Int || right != Int {
-			c.report("operator-type", fmt.Sprintf("operator %v requires int operands, got %s and %s", expr.Op, left, right))
+			c.report("operator-type", fmt.Sprintf("operator %v requires int operands, got %s and %s", expr.Op, left, right), span)
 			return Unknown
 		}
 		return Int
 	case lexer.Less, lexer.LessEqual, lexer.Greater, lexer.GreaterEqual:
 		if left != Int || right != Int {
-			c.report("comparison-type", fmt.Sprintf("ordered comparison requires int operands, got %s and %s", left, right))
+			c.report("comparison-type", fmt.Sprintf("ordered comparison requires int operands, got %s and %s", left, right), span)
 		}
 		return Bool
 	case lexer.EqualEqual, lexer.NotEqual:
 		if left != right {
-			c.report("equality-type", fmt.Sprintf("cannot compare %s and %s", left, right))
+			c.report("equality-type", fmt.Sprintf("cannot compare %s and %s", left, right), span)
 		}
 		return Bool
 	default:
-		c.report("unknown-operator", fmt.Sprintf("unknown operator %v", expr.Op))
+		c.report("unknown-operator", fmt.Sprintf("unknown operator %v", expr.Op), span)
 		return Unknown
 	}
 }

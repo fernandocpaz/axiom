@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"github.com/fernandocpaz/axiom/internal/diagnostic"
 	"github.com/fernandocpaz/axiom/internal/lexer"
 	"strconv"
 )
@@ -29,6 +30,15 @@ func (v Value) String() string {
 type Expr interface {
 	eval(map[string]Value) (Value, error)
 }
+
+// Located preserves source information while keeping expression evaluation small.
+type Located struct {
+	Inner Expr
+	Span  diagnostic.Span
+}
+
+func (e Located) eval(env map[string]Value) (Value, error) { return e.Inner.eval(env) }
+
 type Number int
 type String string
 type Boolean bool
@@ -208,19 +218,19 @@ func (p *Parser) expr(min int) (Expr, error) {
 	switch t.Kind {
 	case lexer.Number:
 		n, _ := strconv.Atoi(t.Text)
-		left = Number(n)
+		left = Located{Inner: Number(n), Span: tokenSpan(t)}
 		p.pos++
 	case lexer.String:
-		left = String(t.Text)
+		left = Located{Inner: String(t.Text), Span: tokenSpan(t)}
 		p.pos++
 	case lexer.True:
-		left = Boolean(true)
+		left = Located{Inner: Boolean(true), Span: tokenSpan(t)}
 		p.pos++
 	case lexer.False:
-		left = Boolean(false)
+		left = Located{Inner: Boolean(false), Span: tokenSpan(t)}
 		p.pos++
 	case lexer.Ident:
-		left = Variable(t.Text)
+		left = Located{Inner: Variable(t.Text), Span: tokenSpan(t)}
 		p.pos++
 	case lexer.LParen:
 		p.pos++
@@ -261,7 +271,7 @@ func (p *Parser) expr(min int) (Expr, error) {
 		if e = p.expect(lexer.RBrace); e != nil {
 			return nil, e
 		}
-		left = Conditional{Test: test, Yes: yes, No: no}
+		left = Located{Inner: Conditional{Test: test, Yes: yes, No: no}, Span: spanFrom(t, p.tokens[p.pos-1])}
 	default:
 		return nil, p.error("expected expression")
 	}
@@ -276,10 +286,37 @@ func (p *Parser) expr(min int) (Expr, error) {
 		if e != nil {
 			return nil, e
 		}
-		left = Binary{Op: op, Left: left, Right: right}
+		left = Located{Inner: Binary{Op: op, Left: left, Right: right}, Span: spanBetween(exprSpan(left), exprSpan(right))}
 	}
 	return left, nil
 }
+
+func tokenSpan(t lexer.Token) diagnostic.Span {
+	return diagnostic.Span{Line: t.Line, Column: t.Col, EndLine: t.Line, EndColumn: t.Col + len(t.Text)}
+}
+
+func exprSpan(expr Expr) diagnostic.Span {
+	if located, ok := expr.(Located); ok {
+		return located.Span
+	}
+	return diagnostic.Span{}
+}
+
+func spanFrom(start, end lexer.Token) diagnostic.Span {
+	span := tokenSpan(start)
+	endSpan := tokenSpan(end)
+	span.EndLine, span.EndColumn = endSpan.EndLine, endSpan.EndColumn
+	return span
+}
+
+func spanBetween(start, end diagnostic.Span) diagnostic.Span {
+	if start.Line == 0 {
+		return end
+	}
+	start.EndLine, start.EndColumn = end.EndLine, end.EndColumn
+	return start
+}
+
 func (pr Program) Run(out func(Value)) error {
 	env := map[string]Value{}
 	for _, s := range pr.Body {
