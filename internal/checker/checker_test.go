@@ -80,3 +80,9 @@ func TestChecksWhileConditions(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %v", got)
 	}
 }
+
+func TestAcceptsLogicalExpressions(t *testing.T) {
+	if got := checkSource(t, `fn main() { print !false && (1 < 2 || false) }`); len(got) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", got)
+	}
+}

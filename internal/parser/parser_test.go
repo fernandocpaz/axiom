@@ -142,3 +142,24 @@ func TestWhileBreakAndContinue(t *testing.T) {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
+
+func TestLogicalAndUnaryExpressions(t *testing.T) {
+	source := `fn main() {
+  print !false && (2 < 3 || -1 > 0)
+}`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Value
+	if err = p.Run(func(v Value) { got = v }); err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != "bool" || !got.Bool {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}

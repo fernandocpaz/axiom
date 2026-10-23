@@ -118,6 +118,23 @@ func (c *checker) expr(expr parser.Expr) string {
 		return t
 	case parser.Binary:
 		return c.binary(e, span)
+	case parser.Unary:
+		operand := c.expr(e.Value)
+		if operand == Unknown {
+			return Unknown
+		}
+		if e.Op == lexer.Not && operand != Bool {
+			c.report("operator-type", fmt.Sprintf("operator ! requires bool, got %s", operand), span)
+			return Unknown
+		}
+		if (e.Op == lexer.Plus || e.Op == lexer.Minus) && operand != Int {
+			c.report("operator-type", fmt.Sprintf("unary operator requires int, got %s", operand), span)
+			return Unknown
+		}
+		if e.Op == lexer.Not {
+			return Bool
+		}
+		return Int
 	case parser.Call:
 		if _, ok := c.functions[e.Name]; !ok {
 			c.report("undefined-function", fmt.Sprintf("undefined function %q", e.Name), span)
@@ -153,6 +170,12 @@ func (c *checker) binary(expr parser.Binary, span diagnostic.Span) string {
 		return Unknown
 	}
 	switch expr.Op {
+	case lexer.AndAnd, lexer.OrOr:
+		if left != Bool || right != Bool {
+			c.report("operator-type", fmt.Sprintf("logical operator requires bool operands, got %s and %s", left, right), span)
+			return Unknown
+		}
+		return Bool
 	case lexer.Plus, lexer.Minus, lexer.Star, lexer.Slash:
 		if left != Int || right != Int {
 			c.report("operator-type", fmt.Sprintf("operator %v requires int operands, got %s and %s", expr.Op, left, right), span)

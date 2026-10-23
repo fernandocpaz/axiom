@@ -70,6 +70,10 @@ type Binary struct {
 	Op          lexer.Kind
 	Left, Right Expr
 }
+type Unary struct {
+	Op    lexer.Kind
+	Value Expr
+}
 type Conditional struct{ Test, Yes, No Expr }
 type Call struct {
 	Name string
@@ -106,6 +110,17 @@ func (b Binary) eval(rt *Runtime) (Value, error) {
 	if e != nil {
 		return Value{}, e
 	}
+	if b.Op == lexer.AndAnd || b.Op == lexer.OrOr {
+		if l.Kind != "bool" {
+			return Value{}, fmt.Errorf("logical operator requires boolean operands")
+		}
+		if b.Op == lexer.AndAnd && !l.Bool {
+			return Value{Kind: "bool", Bool: false}, nil
+		}
+		if b.Op == lexer.OrOr && l.Bool {
+			return Value{Kind: "bool", Bool: true}, nil
+		}
+	}
 	r, e := b.Right.eval(rt)
 	if e != nil {
 		return Value{}, e
@@ -120,10 +135,29 @@ func (b Binary) eval(rt *Runtime) (Value, error) {
 		}
 		return Value{Kind: "bool", Bool: eq}, nil
 	}
+	if b.Op == lexer.AndAnd || b.Op == lexer.OrOr {
+		if r.Kind != "bool" {
+			return Value{}, fmt.Errorf("logical operator requires boolean operands")
+		}
+		if b.Op == lexer.AndAnd {
+			return Value{Kind: "bool", Bool: l.Bool && r.Bool}, nil
+		}
+		return Value{Kind: "bool", Bool: l.Bool || r.Bool}, nil
+	}
 	if l.Kind != "int" || r.Kind != "int" {
 		return Value{}, fmt.Errorf("operator requires integers")
 	}
 	switch b.Op {
+	case lexer.AndAnd:
+		if r.Kind != "bool" {
+			return Value{}, fmt.Errorf("logical operator requires boolean operands")
+		}
+		return Value{Kind: "bool", Bool: l.Bool && r.Bool}, nil
+	case lexer.OrOr:
+		if r.Kind != "bool" {
+			return Value{}, fmt.Errorf("logical operator requires boolean operands")
+		}
+		return Value{Kind: "bool", Bool: l.Bool || r.Bool}, nil
 	case lexer.Plus:
 		return Value{Kind: "int", Int: l.Int + r.Int}, nil
 	case lexer.Minus:
@@ -145,6 +179,32 @@ func (b Binary) eval(rt *Runtime) (Value, error) {
 		return Value{Kind: "bool", Bool: l.Int >= r.Int}, nil
 	}
 	return Value{}, fmt.Errorf("unknown operator")
+}
+
+func (u Unary) eval(rt *Runtime) (Value, error) {
+	value, err := u.Value.eval(rt)
+	if err != nil {
+		return Value{}, err
+	}
+	switch u.Op {
+	case lexer.Not:
+		if value.Kind != "bool" {
+			return Value{}, fmt.Errorf("operator ! requires a boolean")
+		}
+		return Value{Kind: "bool", Bool: !value.Bool}, nil
+	case lexer.Minus:
+		if value.Kind != "int" {
+			return Value{}, fmt.Errorf("unary - requires an integer")
+		}
+		return Value{Kind: "int", Int: -value.Int}, nil
+	case lexer.Plus:
+		if value.Kind != "int" {
+			return Value{}, fmt.Errorf("unary + requires an integer")
+		}
+		return value, nil
+	default:
+		return Value{}, fmt.Errorf("unknown unary operator")
+	}
 }
 func (c Conditional) eval(rt *Runtime) (Value, error) {
 	t, e := c.Test.eval(rt)
@@ -393,14 +453,18 @@ func (p *Parser) stmt() (Stmt, error) {
 }
 func precedence(k lexer.Kind) int {
 	switch k {
-	case lexer.EqualEqual, lexer.NotEqual:
+	case lexer.OrOr:
+		return 0
+	case lexer.AndAnd:
 		return 1
-	case lexer.Less, lexer.LessEqual, lexer.Greater, lexer.GreaterEqual:
+	case lexer.EqualEqual, lexer.NotEqual:
 		return 2
-	case lexer.Plus, lexer.Minus:
+	case lexer.Less, lexer.LessEqual, lexer.Greater, lexer.GreaterEqual:
 		return 3
-	case lexer.Star, lexer.Slash:
+	case lexer.Plus, lexer.Minus:
 		return 4
+	case lexer.Star, lexer.Slash:
+		return 5
 	}
 	return -1
 }
@@ -408,6 +472,13 @@ func (p *Parser) expr(min int) (Expr, error) {
 	t := p.peek()
 	var left Expr
 	switch t.Kind {
+	case lexer.Plus, lexer.Minus, lexer.Not:
+		p.pos++
+		value, e := p.expr(6)
+		if e != nil {
+			return nil, e
+		}
+		left = Located{Inner: Unary{Op: t.Kind, Value: value}, Span: spanBetween(tokenSpan(t), exprSpan(value))}
 	case lexer.Number:
 		n, _ := strconv.Atoi(t.Text)
 		left = Located{Inner: Number(n), Span: tokenSpan(t)}
