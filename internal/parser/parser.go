@@ -822,6 +822,24 @@ type Runtime struct {
 	out          func(Value)
 	depth        int
 	capabilities map[string]bool
+	host         Host
+}
+
+// Host contains the external AI operations available to a program. Axiom
+// keeps these callbacks outside the language runtime so the same program can
+// run against a cloud model, a local model, a test double, or no model at all.
+// Hosts must return structured Values; inference is never exposed as an
+// implicit raw string operation.
+type Host struct {
+	Infer  func(prompt string, schema Value) (Value, error)
+	Recall func(scope string, query string) (Value, error)
+	Invoke func(tool string, args []Value) (Value, error)
+}
+
+// RunOptions configures host integrations while preserving the simple Run API.
+type RunOptions struct {
+	Out  func(Value)
+	Host Host
 }
 
 type flowKind int
@@ -947,6 +965,63 @@ func builtin(rt *Runtime, name string, args []Value) (Value, bool, error) {
 			result.Fields["error"] = Value{Kind: "string", Str: err.Error()}
 		}
 		return result, true, nil
+	case "infer":
+		if !rt.capabilities["model.infer"] {
+			return Value{}, true, fmt.Errorf("capability model.infer is not allowed")
+		}
+		if err := need(2); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "string" || args[1].Kind != "record" {
+			return Value{}, true, fmt.Errorf("infer requires prompt text and record schema")
+		}
+		if rt.host.Infer == nil {
+			return Value{}, true, fmt.Errorf("inference host is not configured")
+		}
+		value, err := rt.host.Infer(args[0].Str, args[1])
+		if err != nil {
+			return Value{}, true, err
+		}
+		if value.Kind != "record" {
+			return Value{}, true, fmt.Errorf("inference host must return a record")
+		}
+		return value, true, nil
+	case "recall":
+		if !rt.capabilities["retrieval.read"] {
+			return Value{}, true, fmt.Errorf("capability retrieval.read is not allowed")
+		}
+		if err := need(2); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "string" || args[1].Kind != "string" {
+			return Value{}, true, fmt.Errorf("recall requires scope and query text")
+		}
+		if rt.host.Recall == nil {
+			return Value{}, true, fmt.Errorf("retrieval host is not configured")
+		}
+		value, err := rt.host.Recall(args[0].Str, args[1].Str)
+		if err != nil {
+			return Value{}, true, err
+		}
+		if value.Kind != "list" {
+			return Value{}, true, fmt.Errorf("retrieval host must return a list")
+		}
+		return value, true, nil
+	case "invoke":
+		if !rt.capabilities["tool.invoke"] {
+			return Value{}, true, fmt.Errorf("capability tool.invoke is not allowed")
+		}
+		if err := need(2); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "string" || args[1].Kind != "list" {
+			return Value{}, true, fmt.Errorf("invoke requires tool name and argument list")
+		}
+		if rt.host.Invoke == nil {
+			return Value{}, true, fmt.Errorf("tool host is not configured")
+		}
+		value, err := rt.host.Invoke(args[0].Str, args[1].List)
+		return value, true, err
 	case "len":
 		if err := need(1); err != nil {
 			return Value{}, true, err
@@ -1121,6 +1196,22 @@ func fromJSON(value interface{}) (Value, error) {
 	}
 }
 
+// ValueFromJSON converts a JSON document into an Axiom runtime value. Host
+// adapters use this boundary instead of duplicating the interpreter's value
+// conversion rules.
+func ValueFromJSON(data []byte) (Value, error) {
+	var decoded interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return Value{}, err
+	}
+	return fromJSON(decoded)
+}
+
+// ValueToJSON serializes an Axiom runtime value for a host adapter.
+func ValueToJSON(value Value) ([]byte, error) {
+	return json.Marshal(toJSON(value))
+}
+
 func (rt *Runtime) execute(body []Stmt) (Value, flowKind, error) {
 	for _, stmt := range body {
 		if stmt.Set != "" {
@@ -1242,6 +1333,15 @@ func (rt *Runtime) execute(body []Stmt) (Value, flowKind, error) {
 }
 
 func (pr Program) Run(out func(Value)) error {
+	return pr.RunWith(RunOptions{Out: out})
+}
+
+// RunWith executes a program with explicit host integrations.
+func (pr Program) RunWith(options RunOptions) error {
+	out := options.Out
+	if out == nil {
+		out = func(Value) {}
+	}
 	functions := map[string]Function{}
 	for _, function := range pr.Functions {
 		functions[function.Name] = function
@@ -1253,7 +1353,7 @@ func (pr Program) Run(out func(Value)) error {
 	for _, capability := range pr.Capabilities {
 		capabilities[capability] = true
 	}
-	rt := &Runtime{env: map[string]Value{}, funcs: functions, out: out, capabilities: capabilities}
+	rt := &Runtime{env: map[string]Value{}, funcs: functions, out: out, capabilities: capabilities, host: options.Host}
 	_, err := rt.call("main", nil)
 	return err
 }

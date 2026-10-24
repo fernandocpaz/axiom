@@ -10,6 +10,10 @@ Local path: `/Users/fernandopaz/axiom`
 
 Branch: `main`
 
+Positioning: Axiom is an AI-only language. Human readability is a non-goal; do
+not add syntax, formatting, or documentation for human ergonomics. Oversight
+happens through diagnostics, tests, and generated reports.
+
 ## Completed
 
 - Public GitHub repository created and published.
@@ -19,9 +23,7 @@ Branch: `main`
 - `examples/hello.ax` now contains:
 
   ```axiom
-  fn main() {
-    print "Hello, world!"
-  }
+  fn main(){print"Hello, world!"}
   ```
 
 - Verified locally with `go test ./...` and `go run ./cmd/axiom examples/hello.ax`; output is exactly `Hello, world!`.
@@ -35,6 +37,9 @@ Branch: `main`
 - File output and time capabilities added in commit `1467296`.
 - Cancellable, buffered, merged event streams added in commit `ed22fc2`.
 - CLI now checks programs before execution for undefined names, invalid operators and comparisons, non-boolean conditions, mismatched equality, and mismatched conditional branches.
+- Canonical machine-only formatting is enforced by `axiom fmt --check` and `axiom check`; `axiom ast` emits stable `axiom.ast/v1` JSON.
+- `infer`, `recall`, and `invoke` are explicit capability-scoped host operations; the runtime requires structured host callbacks and never performs implicit network calls.
+- OpenAI-compatible/Ollama inference is available through `AXIOM_MODEL_URL`, `AXIOM_MODEL`, and optional `AXIOM_API_KEY`; responses are schema-validated before entering the runtime.
 - Verified locally with `go test ./...` and an invalid program that reports diagnostic codes and exits before execution.
 
 ## Current interruption state
@@ -55,4 +60,6 @@ regression intact.
 - `docs/README-03-hello-world.md`
 - `docs/README-04-diagnostics-and-types.md`
 - `docs/README-05-structured-runtime.md`
+- `docs/README-06-ai-native-design.md`
+- `docs/README-07-evaluation.md`
 - `docs/TAILA-PARITY.md`

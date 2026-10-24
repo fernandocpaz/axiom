@@ -14,9 +14,7 @@ The interpreter remains responsible for runtime failures such as division by zer
 ## Example
 
 ```axiom
-fn main() {
-  print true + 1
-}
+fn main(){print true+1}
 ```
 
 The CLI reports `operator-type` and exits without executing the program.

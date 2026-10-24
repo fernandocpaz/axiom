@@ -245,7 +245,11 @@ func (c *checker) expr(expr parser.Expr) string {
 		for i, arg := range e.Args {
 			argTypes[i] = c.expr(arg)
 		}
-		requiredCapability := map[string]string{"read_file": "filesystem.read", "write_file": "filesystem.write", "run": "process.run", "sleep": "time.sleep"}[e.Name]
+		requiredCapability := map[string]string{
+			"read_file": "filesystem.read", "write_file": "filesystem.write",
+			"run": "process.run", "sleep": "time.sleep",
+			"infer": "model.infer", "recall": "retrieval.read", "invoke": "tool.invoke",
+		}[e.Name]
 		if requiredCapability != "" && !c.capabilities[requiredCapability] {
 			c.report("capability", fmt.Sprintf("%s requires allow %q", e.Name, requiredCapability), span)
 		}
@@ -262,6 +266,10 @@ func (c *checker) expr(expr parser.Expr) string {
 			return None
 		case "run":
 			return Record
+		case "infer", "invoke":
+			return Record
+		case "recall":
+			return List
 		case "json_decode":
 			return Unknown
 		case "contains", "starts_with", "ends_with", "matches":
@@ -309,7 +317,7 @@ func (c *checker) expr(expr parser.Expr) string {
 
 func isBuiltin(name string) bool {
 	switch name {
-	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches", "json_encode", "json_decode", "read_file", "write_file", "run", "now", "sleep", "map", "filter":
+	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches", "json_encode", "json_decode", "read_file", "write_file", "run", "now", "sleep", "map", "filter", "infer", "recall", "invoke":
 		return true
 	default:
 		return false

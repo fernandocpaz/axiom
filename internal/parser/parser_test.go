@@ -2,6 +2,7 @@ package parser
 
 import (
 	"github.com/fernandocpaz/axiom/internal/lexer"
+	"strings"
 	"testing"
 )
 
@@ -340,5 +341,71 @@ fn main() { print [1, 2, 3] |> map(double) |> filter(positive) |> len() }`
 	}
 	if got.Kind != "int" || got.Int != 2 {
 		t.Fatalf("unexpected output: %#v", got)
+	}
+}
+
+func TestAIHostOperationsAreExplicitAndStructured(t *testing.T) {
+	source := `allow "model.infer"
+allow "retrieval.read"
+allow "tool.invoke"
+fn main() {
+  let answer = infer("classify", record { kind: "label" })
+  let hits = recall("docs", "streams")
+  let tool = invoke("lookup", ["axiom"])
+  print answer.label
+  print hits[0]
+  print tool.ok
+}`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Value
+	err = p.RunWith(RunOptions{
+		Out: func(v Value) { got = append(got, v) },
+		Host: Host{
+			Infer: func(prompt string, schema Value) (Value, error) {
+				if prompt != "classify" || schema.Kind != "record" {
+					t.Fatalf("unexpected inference request: %q %#v", prompt, schema)
+				}
+				return Value{Kind: "record", Fields: map[string]Value{"label": {Kind: "string", Str: "infra"}}}, nil
+			},
+			Recall: func(scope, query string) (Value, error) {
+				if scope != "docs" || query != "streams" {
+					t.Fatalf("unexpected retrieval request: %q %q", scope, query)
+				}
+				return Value{Kind: "list", List: []Value{{Kind: "string", Str: "stream docs"}}}, nil
+			},
+			Invoke: func(tool string, args []Value) (Value, error) {
+				if tool != "lookup" || len(args) != 1 || args[0].Str != "axiom" {
+					t.Fatalf("unexpected tool request: %q %#v", tool, args)
+				}
+				return Value{Kind: "record", Fields: map[string]Value{"ok": {Kind: "bool", Bool: true}}}, nil
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].Str != "infra" || got[1].Str != "stream docs" || !got[2].Bool {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}
+
+func TestAIHostOperationsRequireCapabilities(t *testing.T) {
+	ts, err := lexer.Scan(`fn main() { print infer("x", record { kind: "text" }) }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Run(func(Value) {}); err == nil || !strings.Contains(err.Error(), "model.infer") {
+		t.Fatalf("expected capability error, got %v", err)
 	}
 }

@@ -1,21 +1,57 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	"github.com/fernandocpaz/axiom/internal/checker"
-	"github.com/fernandocpaz/axiom/internal/lexer"
-	"github.com/fernandocpaz/axiom/internal/parser"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/fernandocpaz/axiom/internal/canon"
+	"github.com/fernandocpaz/axiom/internal/checker"
+	"github.com/fernandocpaz/axiom/internal/diagnostic"
+	"github.com/fernandocpaz/axiom/internal/host"
+	"github.com/fernandocpaz/axiom/internal/ir"
+	"github.com/fernandocpaz/axiom/internal/lexer"
+	"github.com/fernandocpaz/axiom/internal/parser"
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: axiom <file.ax>")
-		os.Exit(2)
+	if len(os.Args) < 2 {
+		usage()
 	}
-	p, e := loadProgram(os.Args[1], map[string]bool{}, map[string]parser.Program{})
+	switch os.Args[1] {
+	case "fmt":
+		formatFiles(os.Args[2:])
+	case "check":
+		checkFiles(os.Args[2:])
+	case "bench":
+		benchmarkFiles(os.Args[2:])
+	case "ast":
+		astFiles(os.Args[2:])
+	case "help", "-h", "--help":
+		usage()
+	default:
+		if len(os.Args) != 2 {
+			usage()
+		}
+		runFile(os.Args[1])
+	}
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "usage: axiom <file.ax>")
+	fmt.Fprintln(os.Stderr, "       axiom fmt [-w|-check] <file.ax>...")
+	fmt.Fprintln(os.Stderr, "       axiom check [--json] <file.ax>...")
+	fmt.Fprintln(os.Stderr, "       axiom bench [file.ax]...")
+	fmt.Fprintln(os.Stderr, "       axiom ast <file.ax>...")
+	os.Exit(2)
+}
+
+func runFile(path string) {
+	p, e := loadProgram(path, map[string]bool{}, map[string]parser.Program{})
 	if e != nil {
 		fmt.Fprintln(os.Stderr, e)
 		os.Exit(1)
@@ -27,10 +63,323 @@ func main() {
 	if len(diagnostics) > 0 {
 		os.Exit(1)
 	}
-	if err := p.Run(func(v parser.Value) { fmt.Println(v) }); err != nil {
+	if err := p.RunWith(parser.RunOptions{Out: func(v parser.Value) { fmt.Println(v) }, Host: configuredHost()}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// configuredHost is deliberately environment-driven so source programs remain
+// portable and do not contain credentials. Set AXIOM_MODEL_URL, AXIOM_MODEL,
+// and optionally AXIOM_API_KEY to enable infer at runtime. Ollama works with
+// AXIOM_MODEL_URL=http://127.0.0.1:11434/v1.
+func configuredHost() parser.Host {
+	baseURL := os.Getenv("AXIOM_MODEL_URL")
+	model := os.Getenv("AXIOM_MODEL")
+	if baseURL == "" || model == "" {
+		return parser.Host{}
+	}
+	adapter := host.OpenAICompatible{BaseURL: baseURL, APIKey: os.Getenv("AXIOM_API_KEY"), Model: model}
+	return parser.Host{Infer: adapter.Infer}
+}
+
+// formatFiles emits canonical source. Axiom has no human-formatted state: the
+// formatter is the only writer of .ax files, and -check rejects drift.
+func formatFiles(args []string) {
+	write := false
+	verify := false
+	var paths []string
+	for _, arg := range args {
+		switch arg {
+		case "-w", "--write":
+			write = true
+		case "-check", "--check":
+			verify = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Fprintf(os.Stderr, "axiom fmt: unknown flag %q\n", arg)
+				os.Exit(2)
+			}
+			paths = append(paths, arg)
+		}
+	}
+	if len(paths) == 0 || write && verify {
+		usage()
+	}
+	drifted := false
+	for _, path := range paths {
+		formatted, already, err := canonicalFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			os.Exit(1)
+		}
+		switch {
+		case verify:
+			if !already {
+				fmt.Fprintln(os.Stderr, path)
+				drifted = true
+			}
+		case write:
+			if !already {
+				mode := os.FileMode(0600)
+				if info, err := os.Stat(path); err == nil {
+					mode = info.Mode()
+				}
+				if err := ioutil.WriteFile(path, []byte(formatted), mode); err != nil {
+					fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+					os.Exit(1)
+				}
+			}
+		default:
+			fmt.Print(formatted)
+		}
+	}
+	if drifted {
+		os.Exit(1)
+	}
+}
+
+// checkFiles runs static diagnostics and rejects any source that is not in
+// canonical form.
+func checkFiles(paths []string) {
+	jsonOutput := false
+	var files []string
+	for _, path := range paths {
+		if path == "--json" {
+			jsonOutput = true
+			continue
+		}
+		files = append(files, path)
+	}
+	if len(files) == 0 {
+		usage()
+	}
+	failed := false
+	results := make([]checkResult, 0, len(files))
+	for _, path := range files {
+		result := checkResult{File: path, OK: true}
+		src, err := ioutil.ReadFile(path)
+		if err != nil {
+			result.OK = false
+			result.Error = err.Error()
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			}
+			failed = true
+			results = append(results, result)
+			continue
+		}
+		result.Bytes = len(src)
+		tokens, err := lexer.Scan(string(src))
+		if err != nil {
+			result.OK = false
+			result.Diagnostics = []diagnostic.Diagnostic{{Code: "lex-error", Message: err.Error()}}
+			result.Error = err.Error()
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			}
+			failed = true
+			results = append(results, result)
+			continue
+		}
+		result.LexerTokens = tokenCount(tokens)
+		program, err := parser.Parse(tokens)
+		if err != nil {
+			result.OK = false
+			result.Diagnostics = []diagnostic.Diagnostic{{Code: "parse-error", Message: err.Error()}}
+			result.Error = err.Error()
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			}
+			failed = true
+			results = append(results, result)
+			continue
+		}
+		result.Diagnostics = checker.Check(program)
+		for _, d := range result.Diagnostics {
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "%s: %s\n", path, d.Error())
+			}
+			failed = true
+			result.OK = false
+		}
+		formatted, already, err := canon.Canonical(string(src))
+		if err != nil {
+			result.OK = false
+			result.Error = err.Error()
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			}
+			failed = true
+		} else if !already {
+			result.OK = false
+			result.CanonicalBytes = len(formatted)
+			result.CanonicalLexerTokens = tokenCountString(formatted)
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "%s: source is not canonical; run axiom fmt -w %s\n", path, path)
+			}
+			failed = true
+		} else {
+			result.CanonicalBytes = len(formatted)
+			result.CanonicalLexerTokens = tokenCountString(formatted)
+		}
+		results = append(results, result)
+	}
+	if jsonOutput {
+		if err := writeJSON(results); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	if failed {
+		os.Exit(1)
+	}
+}
+
+// checkResult is intentionally stable JSON. Models should be able to consume
+// it without scraping human-oriented stderr text.
+type checkResult struct {
+	File                 string                  `json:"file"`
+	OK                   bool                    `json:"ok"`
+	Bytes                int                     `json:"bytes,omitempty"`
+	LexerTokens          int                     `json:"lexer_tokens,omitempty"`
+	CanonicalBytes       int                     `json:"canonical_bytes,omitempty"`
+	CanonicalLexerTokens int                     `json:"canonical_lexer_tokens,omitempty"`
+	Diagnostics          []diagnostic.Diagnostic `json:"diagnostics,omitempty"`
+	Error                string                  `json:"error,omitempty"`
+}
+
+type benchmarkResult struct {
+	File                 string `json:"file"`
+	ParseOK              bool   `json:"parse_ok"`
+	CheckOK              bool   `json:"check_ok"`
+	Canonical            bool   `json:"canonical"`
+	Bytes                int    `json:"bytes,omitempty"`
+	CanonicalBytes       int    `json:"canonical_bytes,omitempty"`
+	LexerTokens          int    `json:"lexer_tokens,omitempty"`
+	CanonicalLexerTokens int    `json:"canonical_lexer_tokens,omitempty"`
+	Error                string `json:"error,omitempty"`
+}
+
+// benchmarkFiles measures deterministic source properties only. Lexer token
+// counts are a portable proxy, not BPE counts; model-specific tokenizers must
+// be measured separately because token vocabularies differ by model.
+func benchmarkFiles(paths []string) {
+	if len(paths) == 0 {
+		var err error
+		paths, err = filepath.Glob("examples/*.ax")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	sort.Strings(paths)
+	results := make([]benchmarkResult, 0, len(paths))
+	for _, path := range paths {
+		result := benchmarkResult{File: path}
+		src, err := ioutil.ReadFile(path)
+		if err != nil {
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		result.Bytes = len(src)
+		tokens, err := lexer.Scan(string(src))
+		if err != nil {
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		result.LexerTokens = tokenCount(tokens)
+		program, err := parser.Parse(tokens)
+		if err != nil {
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		result.ParseOK = true
+		result.CheckOK = len(checker.Check(program)) == 0
+		formatted, canonical, err := canon.Canonical(string(src))
+		if err != nil {
+			result.Error = err.Error()
+		} else {
+			result.Canonical = canonical
+			result.CanonicalBytes = len(formatted)
+			result.CanonicalLexerTokens = tokenCountString(formatted)
+		}
+		results = append(results, result)
+	}
+	if err := writeJSON(results); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+// astFiles emits the stable machine-facing AST. It intentionally emits one
+// JSON document per input file so a model can process streams of files without
+// scraping diagnostics or compiler-internal Go values.
+func astFiles(paths []string) {
+	if len(paths) == 0 {
+		usage()
+	}
+	for _, path := range paths {
+		src, err := ioutil.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			os.Exit(1)
+		}
+		tokens, err := lexer.Scan(string(src))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			os.Exit(1)
+		}
+		program, err := parser.Parse(tokens)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			os.Exit(1)
+		}
+		encoded, err := ir.Encode(program)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			os.Exit(1)
+		}
+		if _, err := os.Stdout.Write(append(encoded, '\n')); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+}
+
+func tokenCount(tokens []lexer.Token) int {
+	if len(tokens) == 0 {
+		return 0
+	}
+	if tokens[len(tokens)-1].Kind == lexer.EOF {
+		return len(tokens) - 1
+	}
+	return len(tokens)
+}
+
+func tokenCountString(src string) int {
+	tokens, err := lexer.Scan(src)
+	if err != nil {
+		return 0
+	}
+	return tokenCount(tokens)
+}
+
+func writeJSON(value interface{}) error {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+	return encoder.Encode(value)
+}
+
+func canonicalFile(path string) (string, bool, error) {
+	src, err := ioutil.ReadFile(path)
+	if err != nil {
+		return "", false, err
+	}
+	return canon.Canonical(string(src))
 }
 
 func loadProgram(path string, active map[string]bool, cache map[string]parser.Program) (parser.Program, error) {

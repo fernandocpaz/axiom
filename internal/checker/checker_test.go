@@ -155,6 +155,14 @@ func TestCapabilitiesAreRequiredForEffects(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("unexpected diagnostics with capability: %v", got)
 	}
+	got = checkSource(t, `fn main() { print infer("x", record { kind: "text" }) }`)
+	if len(got) != 1 || got[0] != "capability" {
+		t.Fatalf("unexpected inference diagnostics: %v", got)
+	}
+	got = checkSource(t, `allow "model.infer" allow "retrieval.read" allow "tool.invoke" fn main() { print infer("x", record { kind: "text" }) print recall("docs", "x") print invoke("lookup", []) }`)
+	if len(got) != 0 {
+		t.Fatalf("unexpected AI diagnostics with capabilities: %v", got)
+	}
 }
 
 func TestAcceptsFunctionValues(t *testing.T) {

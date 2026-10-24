@@ -20,24 +20,17 @@ Implemented:
 - UTC timestamps and capability-scoped sleeping for timed workflows;
 - cancellable host streams with map, filter, take, buffering, merging, and
   error propagation;
+- explicit host boundaries for structured model inference, retrieval, and tool
+  invocation with capability checks;
+- an OpenAI-compatible inference adapter that validates structured model output
+  against an Axiom schema before execution;
 - static checking and runtime tests for these features.
 
 Example:
 
 ```axiom
-fn render(pod) {
-  return pod.name + " restarts=" + text(pod.restarts)
-}
-
-fn main() {
-  let pods = [
-    record { name: "api", restarts: 2 },
-    record { name: "worker", restarts: 0 }
-  ]
-  for pod in pods {
-    print render(pod)
-  }
-}
+fn render(pod){return pod.name+" restarts="+text(pod.restarts)}
+fn main(){let pods=[record{name:"api",restarts:2},record{name:"worker",restarts:0}]for pod in pods{print render(pod)}}
 ```
 
 These are language foundations, not TailA parity by themselves. External

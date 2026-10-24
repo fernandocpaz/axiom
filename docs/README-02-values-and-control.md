@@ -15,11 +15,7 @@ This milestone extends the executable kernel without introducing grammar ambigui
 ## Example
 
 ```axiom
-fn main() {
-  let score = if 4 >= 2 { 7 } else { 0 }
-  print score
-  print score == 7
-}
+fn main(){let score=if 4>=2{7}else{0}print score print score==7}
 ```
 
 Output:

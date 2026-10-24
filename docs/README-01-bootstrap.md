@@ -16,10 +16,7 @@ This milestone establishes the repository and an executable language kernel.
 ## Current syntax
 
 ```axiom
-fn main() {
-  let x = 2 * (20 + 1)
-  print x
-}
+fn main(){let x=2*(20+1)print x}
 ```
 
 ## Deliberate limitations

@@ -3,17 +3,17 @@ package diagnostic
 import "fmt"
 
 type Span struct {
-	Line      int
-	Column    int
-	EndLine   int
-	EndColumn int
+	Line      int `json:"line"`
+	Column    int `json:"column"`
+	EndLine   int `json:"end_line"`
+	EndColumn int `json:"end_column"`
 }
 
 // Diagnostic is a machine-readable compiler or interpreter message.
 type Diagnostic struct {
-	Code    string
-	Message string
-	Span    Span
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Span    Span   `json:"span"`
 }
 
 func (d Diagnostic) Error() string {
