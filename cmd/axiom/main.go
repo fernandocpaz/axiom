@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/fernandocpaz/axiom/internal/bench"
 	"github.com/fernandocpaz/axiom/internal/canon"
 	"github.com/fernandocpaz/axiom/internal/checker"
 	"github.com/fernandocpaz/axiom/internal/diagnostic"
@@ -16,6 +17,8 @@ import (
 	"github.com/fernandocpaz/axiom/internal/ir"
 	"github.com/fernandocpaz/axiom/internal/lexer"
 	"github.com/fernandocpaz/axiom/internal/parser"
+	"github.com/fernandocpaz/axiom/internal/repair"
+	"github.com/fernandocpaz/axiom/internal/schema"
 )
 
 func main() {
@@ -31,6 +34,10 @@ func main() {
 		benchmarkFiles(os.Args[2:])
 	case "ast":
 		astFiles(os.Args[2:])
+	case "schema":
+		schemaFiles(os.Args[2:])
+	case "repair":
+		repairFiles(os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -46,7 +53,10 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       axiom fmt [-w|-check] <file.ax>...")
 	fmt.Fprintln(os.Stderr, "       axiom check [--json] <file.ax>...")
 	fmt.Fprintln(os.Stderr, "       axiom bench [file.ax]...")
+	fmt.Fprintln(os.Stderr, "       axiom bench --model-url URL --model NAME [--samples N] tasks.json")
 	fmt.Fprintln(os.Stderr, "       axiom ast <file.ax>...")
+	fmt.Fprintln(os.Stderr, "       axiom schema <file.ax>...")
+	fmt.Fprintln(os.Stderr, "       axiom repair [--json] <file.ax>...")
 	os.Exit(2)
 }
 
@@ -265,6 +275,47 @@ type benchmarkResult struct {
 // counts are a portable proxy, not BPE counts; model-specific tokenizers must
 // be measured separately because token vocabularies differ by model.
 func benchmarkFiles(paths []string) {
+	modelURL, model, apiKey := os.Getenv("AXIOM_BENCH_MODEL_URL"), os.Getenv("AXIOM_BENCH_MODEL"), os.Getenv("AXIOM_API_KEY")
+	samples := 1
+	var sourcePaths []string
+	for i := 0; i < len(paths); i++ {
+		switch paths[i] {
+		case "--model-url":
+			if i+1 >= len(paths) {
+				usage()
+			}
+			i++
+			modelURL = paths[i]
+		case "--model":
+			if i+1 >= len(paths) {
+				usage()
+			}
+			i++
+			model = paths[i]
+		case "--api-key":
+			if i+1 >= len(paths) {
+				usage()
+			}
+			i++
+			apiKey = paths[i]
+		case "--samples":
+			if i+1 >= len(paths) {
+				usage()
+			}
+			i++
+			if _, err := fmt.Sscan(paths[i], &samples); err != nil || samples < 1 {
+				fmt.Fprintln(os.Stderr, "axiom bench: --samples must be a positive integer")
+				os.Exit(2)
+			}
+		default:
+			sourcePaths = append(sourcePaths, paths[i])
+		}
+	}
+	if modelURL != "" || model != "" {
+		modelBenchmark(sourcePaths, modelURL, model, apiKey, samples)
+		return
+	}
+	paths = sourcePaths
 	if len(paths) == 0 {
 		var err error
 		paths, err = filepath.Glob("examples/*.ax")
@@ -315,6 +366,36 @@ func benchmarkFiles(paths []string) {
 	}
 }
 
+func modelBenchmark(paths []string, modelURL, model, apiKey string, samples int) {
+	if len(paths) != 1 {
+		fmt.Fprintln(os.Stderr, "axiom bench: model mode requires one JSON task manifest")
+		os.Exit(2)
+	}
+	if modelURL == "" || model == "" {
+		fmt.Fprintln(os.Stderr, "axiom bench: model mode requires --model-url and --model")
+		os.Exit(2)
+	}
+	data, err := ioutil.ReadFile(paths[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	tasks, err := bench.DecodeManifest(data)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	adapter := host.OpenAICompatible{BaseURL: modelURL, APIKey: apiKey, Model: model}
+	summary := bench.Run(tasks, samples, model, adapter.Generate)
+	if err := writeJSON(summary); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if summary.PassAt1 != summary.Tasks {
+		os.Exit(1)
+	}
+}
+
 // astFiles emits the stable machine-facing AST. It intentionally emits one
 // JSON document per input file so a model can process streams of files without
 // scraping diagnostics or compiler-internal Go values.
@@ -347,6 +428,66 @@ func astFiles(paths []string) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	}
+}
+
+func schemaFiles(paths []string) {
+	if len(paths) == 0 {
+		usage()
+	}
+	for _, path := range paths {
+		program, err := loadProgram(path, map[string]bool{}, map[string]parser.Program{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			os.Exit(1)
+		}
+		encoded, err := schema.Encode(program)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			os.Exit(1)
+		}
+		if _, err := os.Stdout.Write(append(encoded, '\n')); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+}
+
+func repairFiles(args []string) {
+	jsonOutput := false
+	var paths []string
+	for _, arg := range args {
+		if arg == "--json" {
+			jsonOutput = true
+			continue
+		}
+		paths = append(paths, arg)
+	}
+	if len(paths) == 0 {
+		usage()
+	}
+	// Repair output is always JSON because it is intended for an automated
+	// generation loop; --json is accepted for symmetry with check.
+	_ = jsonOutput
+	failed := false
+	for _, path := range paths {
+		source, err := ioutil.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			failed = true
+			continue
+		}
+		report := repair.Analyze(string(source))
+		if err := writeJSON(map[string]interface{}{"file": path, "report": report}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if !report.Valid {
+			failed = true
+		}
+	}
+	if failed {
+		os.Exit(1)
 	}
 }
 
@@ -418,9 +559,11 @@ func loadProgram(path string, active map[string]bool, cache map[string]parser.Pr
 			return parser.Program{}, err
 		}
 		merged.Functions = append(merged.Functions, dependency.Functions...)
+		merged.Types = append(merged.Types, dependency.Types...)
 		merged.Capabilities = append(merged.Capabilities, dependency.Capabilities...)
 	}
 	merged.Functions = append(merged.Functions, program.Functions...)
+	merged.Types = append(merged.Types, program.Types...)
 	merged.Capabilities = append(merged.Capabilities, program.Capabilities...)
 	for _, function := range merged.Functions {
 		if function.Name == "main" {

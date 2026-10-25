@@ -46,3 +46,19 @@ func TestValidateSchemaRejectsMissingOrWrongFields(t *testing.T) {
 		t.Fatal("expected type error")
 	}
 }
+
+func TestOpenAICompatibleGenerateStripsFences(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{\"choices\":[{\"message\":{\"content\":\"```axiom\\nfn main(){print 1}\\n```\"}}]}"))
+	}))
+	defer server.Close()
+	adapter := OpenAICompatible{BaseURL: server.URL + "/v1", Model: "test", Client: server.Client()}
+	source, err := adapter.Generate("print one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source != "fn main(){print 1}" {
+		t.Fatalf("unexpected generated source: %q", source)
+	}
+}

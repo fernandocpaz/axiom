@@ -22,6 +22,33 @@ func TestArithmetic(t *testing.T) {
 	}
 }
 
+func TestTypedDeclarationsAndResultValues(t *testing.T) {
+	source := `type Label=record{value:string,confidence:int}
+fn classify(text:string)->Result<Label,string> effects(model.infer){return ok(record{value:text,confidence:1})}
+fn main(){let result=classify("infra") print is_ok(result) print unwrap(result).value}`
+	ts, err := lexer.Scan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := Parse(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(program.Types) != 1 || program.Types[0].Name != "Label" {
+		t.Fatalf("unexpected types: %#v", program.Types)
+	}
+	if program.Functions[0].ReturnType.Name != "Result" || len(program.Functions[0].ReturnType.Args) != 2 || len(program.Functions[0].Effects) != 1 {
+		t.Fatalf("unexpected function signature: %#v", program.Functions[0])
+	}
+	var got []Value
+	if err := program.Run(func(value Value) { got = append(got, value) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got[0].Bool || got[1].Str != "infra" {
+		t.Fatalf("unexpected result output: %#v", got)
+	}
+}
+
 func TestConditionalAndBoolean(t *testing.T) {
 	ts, err := lexer.Scan("fn main() { let x = if 4 >= 2 { 7 } else { 0 } print x print x == 7 }")
 	if err != nil {

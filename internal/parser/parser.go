@@ -24,6 +24,20 @@ type Value struct {
 	Function string
 }
 
+// ResultOK and ResultErr construct the canonical runtime representation of
+// Result<T,E>: a record with a boolean discriminator and exactly one payload.
+func ResultOK(value Value) Value {
+	return Value{Kind: "record", Fields: map[string]Value{
+		"ok": {Kind: "bool", Bool: true}, "value": value,
+	}}
+}
+
+func ResultErr(err Value) Value {
+	return Value{Kind: "record", Fields: map[string]Value{
+		"ok": {Kind: "bool", Bool: false}, "error": err,
+	}}
+}
+
 func (v Value) String() string {
 	if v.Kind == "bool" {
 		if v.Bool {
@@ -351,13 +365,31 @@ type Stmt struct {
 	CatchBody []Stmt
 }
 type Function struct {
-	Name   string
-	Params []string
-	Body   []Stmt
+	Name       string
+	Params     []string
+	ParamTypes []TypeRef
+	ReturnType TypeRef
+	Effects    []string
+	Body       []Stmt
 }
+
+// TypeRef is the machine-facing type syntax. Name is a primitive, a declared
+// record name, or a generic constructor such as Result; Args contains its
+// angle-bracket arguments.
+type TypeRef struct {
+	Name string
+	Args []TypeRef
+}
+
+type TypeDecl struct {
+	Name   string
+	Fields map[string]TypeRef
+}
+
 type Program struct {
 	Body         []Stmt
 	Functions    []Function
+	Types        []TypeDecl
 	Imports      []string
 	Capabilities []string
 }
@@ -369,9 +401,18 @@ type Parser struct {
 func Parse(ts []lexer.Token) (Program, error) {
 	p := &Parser{tokens: ts}
 	var functions []Function
+	var types []TypeDecl
 	var imports []string
 	var capabilities []string
 	for p.peek().Kind != lexer.EOF {
+		if p.peek().Kind == lexer.Type {
+			decl, e := p.typeDecl()
+			if e != nil {
+				return Program{}, e
+			}
+			types = append(types, decl)
+			continue
+		}
 		if p.peek().Kind == lexer.Import {
 			p.pos++
 			path := p.peek()
@@ -403,10 +444,81 @@ func Parse(ts []lexer.Token) (Program, error) {
 	}
 	for _, f := range functions {
 		if f.Name == "main" {
-			return Program{Body: f.Body, Functions: functions, Imports: imports, Capabilities: capabilities}, nil
+			return Program{Body: f.Body, Functions: functions, Types: types, Imports: imports, Capabilities: capabilities}, nil
 		}
 	}
-	return Program{Functions: functions, Imports: imports, Capabilities: capabilities}, nil
+	return Program{Functions: functions, Types: types, Imports: imports, Capabilities: capabilities}, nil
+}
+
+func (p *Parser) typeDecl() (TypeDecl, error) {
+	if e := p.expect(lexer.Type); e != nil {
+		return TypeDecl{}, e
+	}
+	name := p.peek()
+	if name.Kind != lexer.Ident {
+		return TypeDecl{}, p.error("expected type name")
+	}
+	p.pos++
+	if e := p.expect(lexer.Equal); e != nil {
+		return TypeDecl{}, e
+	}
+	if e := p.expect(lexer.Record); e != nil {
+		return TypeDecl{}, e
+	}
+	if e := p.expect(lexer.LBrace); e != nil {
+		return TypeDecl{}, e
+	}
+	fields := map[string]TypeRef{}
+	for p.peek().Kind != lexer.RBrace {
+		field := p.peek()
+		if field.Kind != lexer.Ident && field.Kind != lexer.String {
+			return TypeDecl{}, p.error("expected type field name")
+		}
+		p.pos++
+		if e := p.expect(lexer.Colon); e != nil {
+			return TypeDecl{}, e
+		}
+		fieldType, e := p.typeRef()
+		if e != nil {
+			return TypeDecl{}, e
+		}
+		fields[field.Text] = fieldType
+		if p.peek().Kind != lexer.Comma {
+			break
+		}
+		p.pos++
+	}
+	if e := p.expect(lexer.RBrace); e != nil {
+		return TypeDecl{}, e
+	}
+	return TypeDecl{Name: name.Text, Fields: fields}, nil
+}
+
+func (p *Parser) typeRef() (TypeRef, error) {
+	t := p.peek()
+	if t.Kind != lexer.Ident && t.Kind != lexer.Record && t.Kind != lexer.None {
+		return TypeRef{}, p.error("expected type name")
+	}
+	p.pos++
+	result := TypeRef{Name: t.Text}
+	if p.peek().Kind == lexer.Less {
+		p.pos++
+		for {
+			arg, err := p.typeRef()
+			if err != nil {
+				return TypeRef{}, err
+			}
+			result.Args = append(result.Args, arg)
+			if p.peek().Kind != lexer.Comma {
+				break
+			}
+			p.pos++
+		}
+		if e := p.expect(lexer.Greater); e != nil {
+			return TypeRef{}, e
+		}
+	}
+	return result, nil
 }
 
 func (p *Parser) function() (Function, error) {
@@ -422,6 +534,7 @@ func (p *Parser) function() (Function, error) {
 		return Function{}, e
 	}
 	var params []string
+	var paramTypes []TypeRef
 	if p.peek().Kind != lexer.RParen {
 		for {
 			param := p.peek()
@@ -430,6 +543,16 @@ func (p *Parser) function() (Function, error) {
 			}
 			params = append(params, param.Text)
 			p.pos++
+			paramType := TypeRef{}
+			if p.peek().Kind == lexer.Colon {
+				p.pos++
+				var e error
+				paramType, e = p.typeRef()
+				if e != nil {
+					return Function{}, e
+				}
+			}
+			paramTypes = append(paramTypes, paramType)
 			if p.peek().Kind != lexer.Comma {
 				break
 			}
@@ -439,6 +562,39 @@ func (p *Parser) function() (Function, error) {
 	if e := p.expect(lexer.RParen); e != nil {
 		return Function{}, e
 	}
+	returnType := TypeRef{}
+	if p.peek().Kind == lexer.Arrow {
+		p.pos++
+		var e error
+		returnType, e = p.typeRef()
+		if e != nil {
+			return Function{}, e
+		}
+	}
+	var effects []string
+	if p.peek().Kind == lexer.Ident && p.peek().Text == "effects" {
+		p.pos++
+		effects = []string{}
+		if e := p.expect(lexer.LParen); e != nil {
+			return Function{}, e
+		}
+		if p.peek().Kind != lexer.RParen {
+			for {
+				effect, e := p.effectName()
+				if e != nil {
+					return Function{}, e
+				}
+				effects = append(effects, effect)
+				if p.peek().Kind != lexer.Comma {
+					break
+				}
+				p.pos++
+			}
+		}
+		if e := p.expect(lexer.RParen); e != nil {
+			return Function{}, e
+		}
+	}
 	if e := p.expect(lexer.LBrace); e != nil {
 		return Function{}, e
 	}
@@ -446,7 +602,26 @@ func (p *Parser) function() (Function, error) {
 	if e != nil {
 		return Function{}, e
 	}
-	return Function{Name: n.Text, Params: params, Body: body}, nil
+	return Function{Name: n.Text, Params: params, ParamTypes: paramTypes, ReturnType: returnType, Effects: effects, Body: body}, nil
+}
+
+func (p *Parser) effectName() (string, error) {
+	first := p.peek()
+	if first.Kind != lexer.Ident {
+		return "", p.error("expected effect name")
+	}
+	p.pos++
+	parts := []string{first.Text}
+	for p.peek().Kind == lexer.Dot {
+		p.pos++
+		part := p.peek()
+		if part.Kind != lexer.Ident {
+			return "", p.error("expected effect segment")
+		}
+		parts = append(parts, part.Text)
+		p.pos++
+	}
+	return strings.Join(parts, "."), nil
 }
 
 func (p *Parser) statements() ([]Stmt, error) {
@@ -1022,6 +1197,51 @@ func builtin(rt *Runtime, name string, args []Value) (Value, bool, error) {
 		}
 		value, err := rt.host.Invoke(args[0].Str, args[1].List)
 		return value, true, err
+	case "ok":
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		return ResultOK(args[0]), true, nil
+	case "err":
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		return ResultErr(args[0]), true, nil
+	case "is_ok":
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "record" {
+			return Value{}, true, fmt.Errorf("is_ok requires a Result value")
+		}
+		ok, exists := args[0].Fields["ok"]
+		if !exists || ok.Kind != "bool" {
+			return Value{}, true, fmt.Errorf("invalid Result value")
+		}
+		return ok, true, nil
+	case "unwrap":
+		if err := need(1); err != nil {
+			return Value{}, true, err
+		}
+		if args[0].Kind != "record" {
+			return Value{}, true, fmt.Errorf("unwrap requires a Result value")
+		}
+		ok, exists := args[0].Fields["ok"]
+		if !exists || ok.Kind != "bool" {
+			return Value{}, true, fmt.Errorf("invalid Result value")
+		}
+		if ok.Bool {
+			value, exists := args[0].Fields["value"]
+			if !exists {
+				return Value{}, true, fmt.Errorf("successful Result has no value")
+			}
+			return value, true, nil
+		}
+		errorValue, exists := args[0].Fields["error"]
+		if !exists {
+			return Value{}, true, fmt.Errorf("failed Result has no error")
+		}
+		return Value{}, true, fmt.Errorf("Result error: %s", errorValue.String())
 	case "len":
 		if err := need(1); err != nil {
 			return Value{}, true, err

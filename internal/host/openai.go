@@ -29,10 +29,10 @@ func NewOllama(model string) OpenAICompatible {
 }
 
 type chatRequest struct {
-	Model          string         `json:"model"`
-	Messages       []chatMessage  `json:"messages"`
-	Temperature    int            `json:"temperature"`
-	ResponseFormat responseFormat `json:"response_format"`
+	Model          string          `json:"model"`
+	Messages       []chatMessage   `json:"messages"`
+	Temperature    int             `json:"temperature"`
+	ResponseFormat *responseFormat `json:"response_format,omitempty"`
 }
 
 type chatMessage struct {
@@ -77,7 +77,7 @@ func (h OpenAICompatible) Infer(prompt string, schema parser.Value) (parser.Valu
 			{Role: "user", Content: prompt},
 		},
 		Temperature:    0,
-		ResponseFormat: responseFormat{Type: "json_object"},
+		ResponseFormat: &responseFormat{Type: "json_object"},
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -126,6 +126,72 @@ func (h OpenAICompatible) Infer(prompt string, schema parser.Value) (parser.Valu
 		return parser.Value{}, fmt.Errorf("model output failed schema validation: %w", err)
 	}
 	return value, nil
+}
+
+// Generate asks the same endpoint for source text. The caller remains
+// responsible for parsing and checking the result; generated text never
+// enters the runtime directly.
+func (h OpenAICompatible) Generate(prompt string) (string, error) {
+	if h.BaseURL == "" {
+		return "", fmt.Errorf("model host URL is empty")
+	}
+	if h.Model == "" {
+		return "", fmt.Errorf("model name is empty")
+	}
+	payload := chatRequest{Model: h.Model, Messages: []chatMessage{
+		{Role: "system", Content: "Return only canonical Axiom source. Do not use markdown fences or explanations."},
+		{Role: "user", Content: prompt},
+	}}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	client := h.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	url := strings.TrimRight(h.BaseURL, "/") + "/chat/completions"
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if h.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+h.APIKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	responseBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("model host returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+	var decoded chatResponse
+	if err := json.Unmarshal(responseBody, &decoded); err != nil {
+		return "", fmt.Errorf("decode model response: %w", err)
+	}
+	if decoded.Error != nil {
+		return "", fmt.Errorf("model host: %s", decoded.Error.Message)
+	}
+	if len(decoded.Choices) == 0 {
+		return "", fmt.Errorf("model host returned no choices")
+	}
+	return stripFences(strings.TrimSpace(decoded.Choices[0].Message.Content)), nil
+}
+
+func stripFences(source string) string {
+	if strings.HasPrefix(source, "```") && strings.HasSuffix(source, "```") {
+		lines := strings.Split(source, "\n")
+		if len(lines) >= 3 {
+			return strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+		}
+	}
+	return source
 }
 
 // ValidateSchema checks the small structural schema used by infer. A schema

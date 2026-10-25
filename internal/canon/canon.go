@@ -41,6 +41,10 @@ func Program(program parser.Program) string {
 		w.write(quote(capability))
 		w.write("\n")
 	}
+	for _, typ := range program.Types {
+		w.typeDecl(typ)
+		w.write("\n")
+	}
 	functions := program.Functions
 	if len(functions) == 0 && len(program.Body) > 0 {
 		functions = []parser.Function{{Name: "main", Body: program.Body}}
@@ -89,9 +93,65 @@ func (w *writer) function(f parser.Function) {
 			w.write(",")
 		}
 		w.write(param)
+		if i < len(f.ParamTypes) && f.ParamTypes[i].Name != "" {
+			w.write(":")
+			w.typeRef(f.ParamTypes[i])
+		}
 	}
 	w.write(")")
+	if f.ReturnType.Name != "" {
+		w.write("->")
+		w.typeRef(f.ReturnType)
+	}
+	if f.Effects != nil {
+		w.write("effects")
+		w.write("(")
+		for i, effect := range f.Effects {
+			if i > 0 {
+				w.write(",")
+			}
+			w.write(effect)
+		}
+		w.write(")")
+	}
 	w.block(f.Body)
+}
+
+func (w *writer) typeDecl(typ parser.TypeDecl) {
+	w.write("type")
+	w.write(typ.Name)
+	w.write("=")
+	w.write("record")
+	w.write("{")
+	fields := make([]string, 0, len(typ.Fields))
+	for name := range typ.Fields {
+		fields = append(fields, name)
+	}
+	sort.Strings(fields)
+	for i, name := range fields {
+		if i > 0 {
+			w.write(",")
+		}
+		w.write(fieldName(name))
+		w.write(":")
+		w.typeRef(typ.Fields[name])
+	}
+	w.write("}")
+}
+
+func (w *writer) typeRef(typ parser.TypeRef) {
+	w.write(typ.Name)
+	if len(typ.Args) == 0 {
+		return
+	}
+	w.write("<")
+	for i, arg := range typ.Args {
+		if i > 0 {
+			w.write(",")
+		}
+		w.typeRef(arg)
+	}
+	w.write(">")
 }
 
 func (w *writer) block(body []parser.Stmt) {
@@ -358,7 +418,7 @@ func isKeyword(name string) bool {
 	switch name {
 	case "fn", "let", "print", "true", "false", "if", "else", "return", "none",
 		"record", "while", "break", "continue", "set", "for", "in", "try",
-		"catch", "import", "allow":
+		"catch", "import", "allow", "type", "effects":
 		return true
 	}
 	return false

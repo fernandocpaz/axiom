@@ -31,17 +31,98 @@ func Check(program parser.Program) []diagnostic.Diagnostic {
 	for _, capability := range program.Capabilities {
 		capabilities[capability] = true
 	}
-	c := &checker{env: map[string]string{}, functions: functions, capabilities: capabilities, inferred: map[string]string{}, inferring: map[string]bool{}}
+	types := map[string]parser.TypeDecl{}
+	for _, typ := range program.Types {
+		if _, exists := types[typ.Name]; exists {
+			// Keep checking the program and report the duplicate through the same
+			// stable diagnostic channel as other static errors.
+			continue
+		}
+		types[typ.Name] = typ
+	}
+	c := &checker{env: map[string]string{}, functions: functions, types: types, capabilities: capabilities, inferred: map[string]string{}, inferring: map[string]bool{}}
+	seenTypes := map[string]bool{}
+	for _, typ := range program.Types {
+		if seenTypes[typ.Name] {
+			c.report("duplicate-type", fmt.Sprintf("type %q is declared more than once", typ.Name), diagnostic.Span{})
+		}
+		seenTypes[typ.Name] = true
+		for field, fieldType := range typ.Fields {
+			if !knownType(fieldType, types) {
+				c.report("unknown-type", fmt.Sprintf("field %q.%s uses unknown type %s", typ.Name, field, typeName(fieldType)), diagnostic.Span{})
+			}
+		}
+	}
 	for _, function := range functions {
 		c.env = map[string]string{}
-		for _, param := range function.Params {
-			c.env[param] = Unknown
+		c.current = function
+		c.declaredReturn = typeName(function.ReturnType)
+		c.declaredEffects = map[string]bool{}
+		for _, effect := range function.Effects {
+			c.declaredEffects[effect] = true
+		}
+		for i, param := range function.Params {
+			typ := Unknown
+			if i < len(function.ParamTypes) && function.ParamTypes[i].Name != "" {
+				typ = typeName(function.ParamTypes[i])
+			}
+			c.env[param] = typ
+			if i < len(function.ParamTypes) && function.ParamTypes[i].Name != "" && !knownType(function.ParamTypes[i], types) {
+				c.report("unknown-type", fmt.Sprintf("parameter %q uses unknown type %s", param, typeName(function.ParamTypes[i])), diagnostic.Span{})
+			}
+		}
+		if function.ReturnType.Name != "" && !knownType(function.ReturnType, types) {
+			c.report("unknown-type", fmt.Sprintf("function %q uses unknown return type %s", function.Name, typeName(function.ReturnType)), diagnostic.Span{})
 		}
 		c.returnTypes = nil
 		c.checkBody(function.Body)
 		c.reportInconsistentReturns(c.returnTypes)
+		if c.declaredReturn != "" {
+			for _, returnType := range c.returnTypes {
+				if !compatible(returnType, c.declaredReturn) {
+					c.report("return-type", fmt.Sprintf("function %q returns %s, declared %s", function.Name, returnType, c.declaredReturn), diagnostic.Span{})
+					break
+				}
+			}
+		}
 	}
 	return c.diagnostics
+}
+
+func knownType(typ parser.TypeRef, declarations map[string]parser.TypeDecl) bool {
+	if typ.Name == "int" || typ.Name == "bool" || typ.Name == "string" || typ.Name == "none" || typ.Name == "record" {
+		return len(typ.Args) == 0
+	}
+	if typ.Name == "Result" || typ.Name == "list" {
+		if typ.Name == "Result" && len(typ.Args) != 2 || typ.Name == "list" && len(typ.Args) != 1 {
+			return false
+		}
+		for _, arg := range typ.Args {
+			if !knownType(arg, declarations) {
+				return false
+			}
+		}
+		return true
+	}
+	return len(typ.Args) == 0 && declarations[typ.Name].Name != ""
+}
+
+func typeName(typ parser.TypeRef) string {
+	if typ.Name == "" {
+		return ""
+	}
+	if len(typ.Args) == 0 {
+		return typ.Name
+	}
+	args := make([]string, len(typ.Args))
+	for i, arg := range typ.Args {
+		args[i] = typeName(arg)
+	}
+	return typ.Name + "<" + strings.Join(args, ",") + ">"
+}
+
+func compatible(actual, expected string) bool {
+	return actual == Unknown || expected == Unknown || actual == expected
 }
 
 func (c *checker) checkBody(body []parser.Stmt) {
@@ -91,14 +172,18 @@ func (c *checker) checkBody(body []parser.Stmt) {
 }
 
 type checker struct {
-	env          map[string]string
-	functions    map[string]parser.Function
-	capabilities map[string]bool
-	diagnostics  []diagnostic.Diagnostic
-	returnTypes  []string
-	inferred     map[string]string
-	inferring    map[string]bool
-	silent       bool
+	env             map[string]string
+	functions       map[string]parser.Function
+	types           map[string]parser.TypeDecl
+	capabilities    map[string]bool
+	diagnostics     []diagnostic.Diagnostic
+	returnTypes     []string
+	inferred        map[string]string
+	inferring       map[string]bool
+	silent          bool
+	current         parser.Function
+	declaredReturn  string
+	declaredEffects map[string]bool
 }
 
 func exprSpan(expr parser.Expr) diagnostic.Span {
@@ -138,6 +223,16 @@ func (c *checker) functionType(name string, args []string) string {
 	function, ok := c.functions[name]
 	if !ok {
 		return Unknown
+	}
+	if function.ReturnType.Name != "" {
+		if len(function.ParamTypes) == len(function.Params) {
+			for i, paramType := range function.ParamTypes {
+				if paramType.Name != "" && i < len(args) && !compatible(args[i], typeName(paramType)) {
+					c.report("argument-type", fmt.Sprintf("argument %d to %s requires %s, got %s", i+1, name, typeName(paramType), args[i]), diagnostic.Span{})
+				}
+			}
+		}
+		return typeName(function.ReturnType)
 	}
 	key := inferredKey(name, args)
 	if typ, ok := c.inferred[key]; ok {
@@ -202,6 +297,15 @@ func (c *checker) expr(expr parser.Expr) string {
 		}
 		return Record
 	case parser.Field:
+		objectType := c.expr(e.Object)
+		if decl, ok := c.types[objectType]; ok {
+			field, exists := decl.Fields[e.Name]
+			if !exists {
+				c.report("unknown-field", fmt.Sprintf("type %q has no field %q", objectType, e.Name), span)
+				return Unknown
+			}
+			return typeName(field)
+		}
 		c.expr(e.Object)
 		return Unknown
 	case parser.Index:
@@ -253,6 +357,9 @@ func (c *checker) expr(expr parser.Expr) string {
 		if requiredCapability != "" && !c.capabilities[requiredCapability] {
 			c.report("capability", fmt.Sprintf("%s requires allow %q", e.Name, requiredCapability), span)
 		}
+		if requiredCapability != "" && c.current.Effects != nil && !c.declaredEffects[requiredCapability] {
+			c.report("effect", fmt.Sprintf("function %q must declare effects(%s) for %s", c.current.Name, requiredCapability, e.Name), span)
+		}
 		switch e.Name {
 		case "len", "number":
 			return Int
@@ -266,8 +373,23 @@ func (c *checker) expr(expr parser.Expr) string {
 			return None
 		case "run":
 			return Record
-		case "infer", "invoke":
+		case "infer", "invoke", "ok", "err", "is_ok":
+			if (e.Name == "infer" || e.Name == "ok" || e.Name == "err") && c.declaredReturn != "" {
+				if strings.HasPrefix(c.declaredReturn, "Result<") {
+					return c.declaredReturn
+				}
+				if e.Name == "infer" {
+					if _, named := c.types[c.declaredReturn]; named {
+						return c.declaredReturn
+					}
+				}
+			}
+			if e.Name == "is_ok" {
+				return Bool
+			}
 			return Record
+		case "unwrap":
+			return Unknown
 		case "recall":
 			return List
 		case "json_decode":
@@ -276,6 +398,11 @@ func (c *checker) expr(expr parser.Expr) string {
 			return Bool
 		}
 		if _, ok := c.functions[e.Name]; ok {
+			for _, effect := range c.functions[e.Name].Effects {
+				if c.current.Effects != nil && !c.declaredEffects[effect] {
+					c.report("effect", fmt.Sprintf("function %q must declare effects(%s) for call to %s", c.current.Name, effect, e.Name), span)
+				}
+			}
 			return c.functionType(e.Name, argTypes)
 		}
 		return Unknown
@@ -317,7 +444,7 @@ func (c *checker) expr(expr parser.Expr) string {
 
 func isBuiltin(name string) bool {
 	switch name {
-	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches", "json_encode", "json_decode", "read_file", "write_file", "run", "now", "sleep", "map", "filter", "infer", "recall", "invoke":
+	case "len", "text", "number", "contains", "starts_with", "ends_with", "matches", "json_encode", "json_decode", "read_file", "write_file", "run", "now", "sleep", "map", "filter", "infer", "recall", "invoke", "ok", "err", "is_ok", "unwrap":
 		return true
 	default:
 		return false

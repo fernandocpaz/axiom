@@ -22,6 +22,7 @@ func Encode(program parser.Program) ([]byte, error) {
 		"schema":       Schema,
 		"imports":      stringList(program.Imports),
 		"capabilities": stringList(program.Capabilities),
+		"types":        typeDecls(program.Types),
 		"functions":    functions(program.Functions),
 		"body":         statements(program.Body),
 	}
@@ -31,14 +32,71 @@ func Encode(program parser.Program) ([]byte, error) {
 func functions(items []parser.Function) []interface{} {
 	result := make([]interface{}, len(items))
 	for i, item := range items {
-		result[i] = map[string]interface{}{
+		node := map[string]interface{}{
 			"kind":   "function",
 			"name":   item.Name,
 			"params": stringList(item.Params),
 			"body":   statements(item.Body),
 		}
+		if hasParameterTypes(item) {
+			node["param_types"] = parameterTypes(item)
+		}
+		if item.ReturnType.Name != "" {
+			node["return_type"] = typeRef(item.ReturnType)
+		}
+		if item.Effects != nil {
+			node["effects"] = stringList(item.Effects)
+		}
+		result[i] = node
 	}
 	return result
+}
+
+func hasParameterTypes(item parser.Function) bool {
+	for _, typ := range item.ParamTypes {
+		if typ.Name != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func parameterTypes(item parser.Function) []interface{} {
+	result := make([]interface{}, len(item.Params))
+	for i := range item.Params {
+		if i < len(item.ParamTypes) && item.ParamTypes[i].Name != "" {
+			result[i] = typeRef(item.ParamTypes[i])
+		}
+	}
+	return result
+}
+
+func typeDecls(items []parser.TypeDecl) []interface{} {
+	result := make([]interface{}, len(items))
+	for i, item := range items {
+		fields := make([]string, 0, len(item.Fields))
+		for name := range item.Fields {
+			fields = append(fields, name)
+		}
+		sort.Strings(fields)
+		encoded := make([]interface{}, 0, len(fields))
+		for _, name := range fields {
+			encoded = append(encoded, map[string]interface{}{"name": name, "type": typeRef(item.Fields[name])})
+		}
+		result[i] = map[string]interface{}{"kind": "type", "name": item.Name, "fields": encoded}
+	}
+	return result
+}
+
+func typeRef(item parser.TypeRef) interface{} {
+	if item.Name == "" {
+		return nil
+	}
+	args := make([]interface{}, len(item.Args))
+	for i, arg := range item.Args {
+		args[i] = typeRef(arg)
+	}
+	return map[string]interface{}{"name": item.Name, "args": args}
 }
 
 func stringList(items []string) []string {

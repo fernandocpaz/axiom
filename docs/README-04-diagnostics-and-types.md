@@ -9,7 +9,12 @@ This milestone adds a compiler check between parsing and execution.
 - undefined-name, operator, comparison, condition, equality, and branch-type checks;
 - CLI validation before the interpreter runs.
 
-The interpreter remains responsible for runtime failures such as division by zero. Static checking is intentionally small and grows alongside the language grammar.
+The interpreter remains responsible for runtime failures such as division by zero. Static checking is intentionally small and grows alongside the language grammar. Typed function parameters, named record declarations, generic `Result<T,E>` signatures, declared effects, and unknown-type diagnostics are now checked before execution.
+
+```axiom
+type Label=record{value:string}
+fn classify(text:string)->Result<Label,string> effects(model.infer){return ok(record{value:text})}
+```
 
 ## Example
 

@@ -98,6 +98,12 @@ The schema record uses field names mapped to primitive type names, for example
 `record{label:"string",confidence:"int"}`. The adapter rejects missing fields
 and wrong types before the value reaches the program.
 
+`axiom schema file.ax` emits `axiom.schema/v1`, including JSON Schema forms for
+declared records, lists, and `Result<T,E>`. This is the stable contract a host
+can pass to a constrained decoder. `axiom repair --json file.ax` emits
+`axiom.repair/v1` diagnostics and a complete canonical replacement action when
+the source only needs normalization.
+
 ## Representation
 
 Axiom has two machine-facing forms:

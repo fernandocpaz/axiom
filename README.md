@@ -42,11 +42,21 @@ go test ./...
 go run ./cmd/axiom check --json examples/hello.ax
 go run ./cmd/axiom bench
 go run ./cmd/axiom ast examples/hello.ax
+go run ./cmd/axiom schema examples/hello.ax
+go run ./cmd/axiom repair --json examples/hello.ax
 ```
 
 To enable `infer` through a local Ollama or OpenAI-compatible endpoint, set
 `AXIOM_MODEL_URL` and `AXIOM_MODEL`. Add `AXIOM_API_KEY` only for endpoints
 that require bearer authentication.
+
+`axiom schema` emits the declared JSON Schema catalogue for constrained model
+decoding. `axiom repair` emits `axiom.repair/v1` feedback and a deterministic
+whole-file canonical replacement when formatting repair is possible.
+
+For model-generation evaluation, pass a JSON task manifest to `axiom bench`
+with `--model-url`, `--model`, and optional `--samples`; generated code is
+parsed and checked but never executed.
 
 Example:
 

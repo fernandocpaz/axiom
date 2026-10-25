@@ -165,6 +165,32 @@ func TestCapabilitiesAreRequiredForEffects(t *testing.T) {
 	}
 }
 
+func TestTypedFunctionsAndEffects(t *testing.T) {
+	got := checkSource(t, `type Label=record{value:string}
+allow "model.infer"
+fn classify(text:string)->Label effects(model.infer){return infer(text,record{value:"string"})}
+fn main(){print classify("x")}`)
+	if len(got) != 0 {
+		t.Fatalf("unexpected typed diagnostics: %v", got)
+	}
+	got = checkSource(t, `allow "model.infer" fn classify(text:string)->string effects(model.infer){return infer(text,record{value:"string"})}`)
+	if len(got) == 0 || got[0] != "return-type" {
+		t.Fatalf("expected return type diagnostic: %v", got)
+	}
+	got = checkSource(t, `allow "model.infer" fn classify(text:string)->record effects(){return infer(text,record{value:"string"})}`)
+	if len(got) == 0 || got[0] != "effect" {
+		t.Fatalf("expected effect diagnostic: %v", got)
+	}
+}
+
+func TestTypedResultReturn(t *testing.T) {
+	got := checkSource(t, `type Label=record{value:string}
+fn classify(text:string)->Result<Label,string>{return ok(record{value:text})}`)
+	if len(got) != 0 {
+		t.Fatalf("unexpected Result diagnostics: %v", got)
+	}
+}
+
 func TestAcceptsFunctionValues(t *testing.T) {
 	if got := checkSource(t, `fn double(value) { return value * 2 } fn main() { print map([1, 2], double) }`); len(got) != 0 {
 		t.Fatalf("unexpected diagnostics: %v", got)

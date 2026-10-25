@@ -55,6 +55,17 @@ The primary metric is **correct pass@1 per total token and repair turn**. Token
 counts must use the actual tokenizer for each model. Lexer tokens and bytes are
 useful reproducible secondary metrics only.
 
+The repository includes an opt-in model runner. Its task manifest is a JSON
+array such as:
+
+```json
+[{"id":"hello","prompt":"Generate a canonical Axiom program that prints hello."}]
+```
+
+Run `axiom bench --model-url URL --model NAME --samples 1 tasks.json` to emit
+`axiom.bench/v1`. Candidates are parsed and statically checked, but never
+executed; executable semantic assertions remain a separate task-tier concern.
+
 ## Required ablations
 
 - formatted versus canonical compact source;

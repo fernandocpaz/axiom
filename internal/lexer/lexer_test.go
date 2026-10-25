@@ -41,3 +41,18 @@ func TestStringAdvancesColumnsCorrectly(t *testing.T) {
 		t.Fatalf("unexpected token positions: %#v", ts)
 	}
 }
+
+func TestScanTypeSyntax(t *testing.T) {
+	ts, err := Scan(`type Label=record{value:string} fn classify(text:string)->Result<Label,string> effects(model.infer){return ok(text)}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundType, foundArrow := false, false
+	for _, token := range ts {
+		foundType = foundType || token.Kind == Type
+		foundArrow = foundArrow || token.Kind == Arrow
+	}
+	if !foundType || !foundArrow {
+		t.Fatalf("missing type tokens: %#v", ts)
+	}
+}

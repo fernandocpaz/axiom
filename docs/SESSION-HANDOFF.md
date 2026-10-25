@@ -40,6 +40,8 @@ happens through diagnostics, tests, and generated reports.
 - Canonical machine-only formatting is enforced by `axiom fmt --check` and `axiom check`; `axiom ast` emits stable `axiom.ast/v1` JSON.
 - `infer`, `recall`, and `invoke` are explicit capability-scoped host operations; the runtime requires structured host callbacks and never performs implicit network calls.
 - OpenAI-compatible/Ollama inference is available through `AXIOM_MODEL_URL`, `AXIOM_MODEL`, and optional `AXIOM_API_KEY`; responses are schema-validated before entering the runtime.
+- Declared records and generic `Result<T,E>` types are exported as `axiom.schema/v1`; `axiom repair --json` emits deterministic `axiom.repair/v1` feedback for model repair loops.
+- `axiom bench --model-url ... --model ... tasks.json` runs the opt-in `axiom.bench/v1` parse/check pass@1 harness without executing generated code.
 - Verified locally with `go test ./...` and an invalid program that reports diagnostic codes and exits before execution.
 
 ## Current interruption state

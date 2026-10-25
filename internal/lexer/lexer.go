@@ -53,6 +53,8 @@ const (
 	Import
 	Allow
 	Pipe
+	Type
+	Arrow
 )
 
 type Token struct {
@@ -69,7 +71,7 @@ func (t Token) String() string {
 }
 
 func name(k Kind) string {
-	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">=", Comma: ",", Return: "return", None: "none", Record: "record", Colon: ":", Dot: ".", LBracket: "[", RBracket: "]", While: "while", Break: "break", Continue: "continue", AndAnd: "&&", OrOr: "||", Not: "!", Set: "set", For: "for", In: "in", Try: "try", Catch: "catch", Import: "import", Allow: "allow", Pipe: "|>"} {
+	for n, v := range map[Kind]string{EOF: "eof", Ident: "ident", Number: "number", String: "string", Fn: "fn", Let: "let", Print: "print", True: "true", False: "false", If: "if", Else: "else", LBrace: "{", RBrace: "}", LParen: "(", RParen: ")", Equal: "=", Plus: "+", Minus: "-", Star: "*", Slash: "/", EqualEqual: "==", NotEqual: "!=", Less: "<", LessEqual: "<=", Greater: ">", GreaterEqual: ">=", Comma: ",", Return: "return", None: "none", Record: "record", Colon: ":", Dot: ".", LBracket: "[", RBracket: "]", While: "while", Break: "break", Continue: "continue", AndAnd: "&&", OrOr: "||", Not: "!", Set: "set", For: "for", In: "in", Try: "try", Catch: "catch", Import: "import", Allow: "allow", Pipe: "|>", Type: "type", Arrow: "->"} {
 		if v != "" && k == n {
 			return v
 		}
@@ -218,6 +220,9 @@ func Scan(src string) ([]Token, error) {
 			if text == "allow" {
 				k = Allow
 			}
+			if text == "type" {
+				k = Type
+			}
 			out = append(out, Token{k, text, startLine, startCol})
 			col += j - i
 			i = j
@@ -263,6 +268,12 @@ func Scan(src string) ([]Token, error) {
 			}
 			if pair == "|>" {
 				out = append(out, Token{Pipe, pair, line, col})
+				i += 2
+				col += 2
+				continue
+			}
+			if pair == "->" {
+				out = append(out, Token{Arrow, pair, line, col})
 				i += 2
 				col += 2
 				continue

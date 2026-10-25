@@ -1,0 +1,4 @@
+allow"model.infer"
+type Label=record{confidence:int,value:string}
+fn classify(text:string)->Label effects(model.infer){return infer(text,record{confidence:"int",value:"string"})}
+fn main(){let answer=classify("infra")print answer.value}
